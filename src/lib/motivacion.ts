@@ -16,7 +16,7 @@ export function generarMensajeMotivacional(
   // Bienvenida inicial
   if (materias.length === 0) {
     return {
-      texto: "¡Bienvenido a Monteflori! Cargá tus materias y empezá a hacer seguimiento de tu carrera.",
+      texto: "¡Bienvenido a Monteflori! Cargá tus materias y arrancamos a seguirle la pista a tu carrera.",
       emoji: "✨",
       tipo: "bienvenida",
     };
@@ -25,7 +25,7 @@ export function generarMensajeMotivacional(
   // Hitos de porcentaje
   if (porcentaje >= 90) {
     return {
-      texto: `¡Casi llegás! Tenés un ${porcentaje}% de la carrera completada. El final está a la vuelta de la esquina. ¡No aflojés ahora!`,
+      texto: `¡Ya la tenés ahí nomás! Vas por el ${porcentaje}% de la carrera. El título está a la vuelta de la esquina, no aflojes justo ahora.`,
       emoji: "🏁",
       tipo: "logro",
     };
@@ -33,7 +33,7 @@ export function generarMensajeMotivacional(
 
   if (porcentaje >= 75) {
     return {
-      texto: `¡Impresionante! Ya completaste el ${porcentaje}% de tu carrera. Tres cuartos del camino recorrido. Mirá todo lo que lograste.`,
+      texto: `¡Una locura lo tuyo! Ya vas por el ${porcentaje}% de la carrera — tres cuartos del camino hecho. Mirá todo lo que remaste para llegar hasta acá.`,
       emoji: "🌟",
       tipo: "logro",
     };
@@ -41,7 +41,7 @@ export function generarMensajeMotivacional(
 
   if (porcentaje >= 50) {
     return {
-      texto: `¡La mitad de la carrera completada! ${aprobadas.length} materias aprobadas y un promedio de ${promedio.toFixed(1)}. ¡Vas muy bien!`,
+      texto: `¡Mitad de camino! Ya llevás ${aprobadas.length} materias aprobadas con un promedio de ${promedio.toFixed(1)}. Vas requetebién, seguí así.`,
       emoji: "🎯",
       tipo: "logro",
     };
@@ -49,7 +49,7 @@ export function generarMensajeMotivacional(
 
   if (porcentaje >= 25) {
     return {
-      texto: `¡Un cuarto de carrera adentro! Con ${aprobadas.length} materias aprobadas, el camino ya está trazado. Seguí así.`,
+      texto: `¡Ya metiste un cuarto de la carrera adentro! Con ${aprobadas.length} materias aprobadas, el camino está trazado. Dale para adelante.`,
       emoji: "💪",
       tipo: "aliento",
     };
@@ -58,7 +58,7 @@ export function generarMensajeMotivacional(
   // Promedio alto sin muchas aprobadas
   if (promedio >= 8 && aprobadas.length > 0) {
     return {
-      texto: `Promedio de ${promedio.toFixed(1)} — ¡eso no lo logra cualquiera! Con ${aprobadas.length} materias aprobadas, la calidad de tu trabajo habla sola.`,
+      texto: `Promedio de ${promedio.toFixed(1)} — eso no lo saca cualquiera. Con ${aprobadas.length} materias aprobadas, se nota que la estás remando en serio.`,
       emoji: "🔥",
       tipo: "logro",
     };
@@ -67,7 +67,7 @@ export function generarMensajeMotivacional(
   // Cursando varias materias
   if (cursando.length >= 3) {
     return {
-      texto: `Estás cursando ${cursando.length} materias al mismo tiempo. Es mucho para gestionar, ¡pero acá estamos para ayudarte a no perder de vista ninguna!`,
+      texto: `Estás cursando ${cursando.length} materias a la vez. Es mucho para bancarse solo, pero para eso estamos: para que no se te escape ninguna.`,
       emoji: "📚",
       tipo: "aliento",
     };
@@ -76,7 +76,7 @@ export function generarMensajeMotivacional(
   // Inicio de carrera
   if (aprobadas.length === 0 && cursando.length > 0) {
     return {
-      texto: `¡Empezaste el camino! Estás cursando tu${cursando.length > 1 ? "s" : ""} primera${cursando.length > 1 ? "s" : ""} materia${cursando.length > 1 ? "s" : ""}. Cada paso cuenta.`,
+      texto: `¡Arrancaste! Ya estás cursando tu${cursando.length > 1 ? "s" : ""} primera${cursando.length > 1 ? "s" : ""} materia${cursando.length > 1 ? "s" : ""}. Todo suma, así que vamos de a poco.`,
       emoji: "🌱",
       tipo: "aliento",
     };
@@ -85,7 +85,7 @@ export function generarMensajeMotivacional(
   // Primera materia aprobada
   if (aprobadas.length === 1) {
     return {
-      texto: `¡La primera siempre es la más difícil! Con ${aprobadas[0].nombre} aprobada, ya demostraste que podés. Ahora a por la siguiente.`,
+      texto: `¡La primera siempre es la más brava! Ya aprobaste ${aprobadas[0].nombre} y demostraste que se puede. Ahora a por la que sigue.`,
       emoji: "🎉",
       tipo: "logro",
     };
@@ -94,17 +94,17 @@ export function generarMensajeMotivacional(
   // Genérico motivador
   const frasesGenericas: MensajeMotivacional[] = [
     {
-      texto: `Llevás ${aprobadas.length} materias aprobadas. Cada una es un peldaño más hacia tu título. ¡Seguí sumando!`,
+      texto: `Ya llevás ${aprobadas.length} materias aprobadas. Cada una te deja más cerca del título — dale que vas bien.`,
       emoji: "📈",
       tipo: "aliento",
     },
     {
-      texto: `Un ${porcentaje}% de la carrera completada. Cada hora de estudio que pusiste está reflejada en ese número. Vale la pena.`,
+      texto: `Vas por el ${porcentaje}% de la carrera. Cada hora que le metiste al estudio está ahí, en ese número. Se nota, y vale la pena.`,
       emoji: "🧩",
       tipo: "aliento",
     },
     {
-      texto: `Recuerda: los que llegan son los que no se rinden. Ya llevas ${aprobadas.length} materias en el bolsillo.`,
+      texto: `Acordate: el que llega es el que no afloja. Y vos ya llevás ${aprobadas.length} materias en el bolsillo.`,
       emoji: "🏆",
       tipo: "aliento",
     },

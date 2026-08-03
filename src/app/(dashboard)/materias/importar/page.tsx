@@ -155,9 +155,13 @@ function ImportarContent() {
             <Puzzle size={36} style={{ color: "var(--foreground-subtle)" }} />
             <p className="font-bold" style={{ color: "var(--foreground)" }}>No detectamos la extensión Monteflori Sync</p>
             <p className="text-sm max-w-sm" style={{ color: "var(--foreground-muted)" }}>
-              Instalá la extensión desde <code>chrome://extensions</code> (modo desarrollador → Cargar
-              descomprimida → carpeta <code>extension/</code>) y volvé a esta página.
+              Necesitás instalarla una vez para poder sincronizar tus materias automáticamente.
             </p>
+            <Link href="/extension"
+              className="mt-2 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all hover:opacity-90"
+              style={{ background: "var(--color-primary)", color: "white" }}>
+              Ver instrucciones de instalación
+            </Link>
           </div>
         )}
 
