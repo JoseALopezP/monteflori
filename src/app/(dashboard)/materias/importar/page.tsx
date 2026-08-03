@@ -2,6 +2,7 @@
 
 // src/app/(dashboard)/materias/importar/page.tsx
 // Revisa y confirma los datos scrapeados por la extensión antes de guardarlos en Firestore.
+// El scraper recorre todas las carreras del usuario, así que acá se revisa una sección por carrera.
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -10,10 +11,8 @@ import {
   Puzzle, RefreshCw, CheckCircle2, AlertCircle, Loader2,
   GraduationCap, ChevronLeft, Import,
 } from "lucide-react";
-import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useAuthContext } from "@/components/auth/AuthProvider";
-import { useCarreras } from "@/hooks/useCarreras";
-import { useMaterias } from "@/hooks/useMaterias";
+import { useCarreraActivaContext } from "@/components/dashboard/CarreraActivaProvider";
 import { addCarrera, importarMateriasScrapeadas } from "@/lib/firestore";
 import {
   extensionConfigurada, pingExtension, obtenerUltimaSincronizacion,
@@ -31,17 +30,21 @@ interface FilaEditable extends MateriaScrapeada {
   incluir: boolean;
 }
 
-function ImportarContent() {
+interface SeccionEditable {
+  nombreOriginal: string | null;
+  carreraId: string;
+  nombreNuevaCarrera: string;
+  filas: FilaEditable[];
+}
+
+export default function ImportarPage() {
   const { user } = useAuthContext();
   const router = useRouter();
-  const { carreras } = useCarreras(user?.uid ?? null);
-  const { materias: materiasExistentes } = useMaterias(user?.uid ?? null);
+  const { carreras, refetchCarreras } = useCarreraActivaContext();
 
   const [estado, setEstado] = useState<Estado>("verificando");
   const [scrapeData, setScrapeData] = useState<ScrapeData | null>(null);
-  const [filas, setFilas] = useState<FilaEditable[]>([]);
-  const [carreraId, setCarreraId] = useState<string>(SIN_CARRERA);
-  const [nombreNuevaCarrera, setNombreNuevaCarrera] = useState("");
+  const [secciones, setSecciones] = useState<SeccionEditable[]>([]);
   const [resultado, setResultado] = useState<{ creadas: number; actualizadas: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,20 +59,25 @@ function ImportarContent() {
         return;
       }
       obtenerUltimaSincronizacion().then((data) => {
-        if (!data || data.materias.length === 0) {
+        const totalMaterias = data?.carreras?.reduce((acc, c) => acc + c.materias.length, 0) ?? 0;
+        if (!data || totalMaterias === 0) {
           setEstado("sin-datos");
           return;
         }
         setScrapeData(data);
-        setFilas(data.materias.map((m) => ({ ...m, incluir: true })));
-
-        if (data.carrera) {
-          const match = carreras.find(
-            (c) => c.nombre.trim().toLowerCase() === data.carrera!.trim().toLowerCase()
-          );
-          setCarreraId(match ? match.id : NUEVA_CARRERA);
-          setNombreNuevaCarrera(data.carrera);
-        }
+        setSecciones(
+          data.carreras.map((c) => {
+            const match = c.carrera
+              ? carreras.find((existente) => existente.nombre.trim().toLowerCase() === c.carrera!.trim().toLowerCase())
+              : null;
+            return {
+              nombreOriginal: c.carrera,
+              carreraId: match ? match.id : c.carrera ? NUEVA_CARRERA : SIN_CARRERA,
+              nombreNuevaCarrera: c.carrera ?? "",
+              filas: c.materias.map((m) => ({ ...m, incluir: true })),
+            };
+          })
+        );
         setEstado("listo");
       });
     });
@@ -77,8 +85,18 @@ function ImportarContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function actualizarFila(i: number, cambios: Partial<FilaEditable>) {
-    setFilas((prev) => prev.map((f, idx) => (idx === i ? { ...f, ...cambios } : f)));
+  function actualizarSeccion(i: number, cambios: Partial<SeccionEditable>) {
+    setSecciones((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...cambios } : s)));
+  }
+
+  function actualizarFila(iSeccion: number, iFila: number, cambios: Partial<FilaEditable>) {
+    setSecciones((prev) =>
+      prev.map((s, idx) =>
+        idx !== iSeccion
+          ? s
+          : { ...s, filas: s.filas.map((f, j) => (j === iFila ? { ...f, ...cambios } : f)) }
+      )
+    );
   }
 
   async function handleImportar() {
@@ -86,27 +104,41 @@ function ImportarContent() {
     setError(null);
     setEstado("importando");
     try {
-      let idCarreraFinal: string | null = null;
-      if (carreraId === NUEVA_CARRERA) {
-        if (nombreNuevaCarrera.trim()) {
-          idCarreraFinal = await addCarrera(user.uid, {
-            nombre: nombreNuevaCarrera.trim(),
-            institucion: scrapeData?.universidad ?? "",
-          });
+      let creadasTotal = 0;
+      let actualizadasTotal = 0;
+      let seCrearonCarreras = false;
+
+      for (const seccion of secciones) {
+        let idCarreraFinal: string | null = null;
+        if (seccion.carreraId === NUEVA_CARRERA) {
+          if (seccion.nombreNuevaCarrera.trim()) {
+            idCarreraFinal = await addCarrera(user.uid, {
+              nombre: seccion.nombreNuevaCarrera.trim(),
+              institucion: scrapeData?.universidad ?? "",
+            });
+            seCrearonCarreras = true;
+          }
+        } else if (seccion.carreraId !== SIN_CARRERA) {
+          idCarreraFinal = seccion.carreraId;
         }
-      } else if (carreraId !== SIN_CARRERA) {
-        idCarreraFinal = carreraId;
+
+        const seleccionadas = seccion.filas.filter((f) => f.incluir);
+        if (seleccionadas.length === 0) continue;
+
+        // Traemos las materias existentes recién (no un hook compartido) porque
+        // cada sección puede crear materias que la siguiente sección necesita
+        // ver para no duplicar (ej. una materia compartida entre dos carreras).
+        const { getMaterias } = await import("@/lib/firestore");
+        const materiasExistentes = await getMaterias(user.uid);
+
+        const res = await importarMateriasScrapeadas(user.uid, idCarreraFinal, seleccionadas, materiasExistentes);
+        creadasTotal += res.creadas;
+        actualizadasTotal += res.actualizadas;
       }
 
-      const seleccionadas = filas.filter((f) => f.incluir);
-      const res = await importarMateriasScrapeadas(
-        user.uid,
-        idCarreraFinal,
-        seleccionadas,
-        materiasExistentes
-      );
+      if (seCrearonCarreras) refetchCarreras();
       await limpiarUltimaSincronizacion();
-      setResultado(res);
+      setResultado({ creadas: creadasTotal, actualizadas: actualizadasTotal });
       setEstado("hecho");
     } catch {
       setError("Ocurrió un error al importar. Intentá de nuevo.");
@@ -128,6 +160,9 @@ function ImportarContent() {
     background: "var(--color-card)",
     borderColor: "var(--color-card-border)",
   };
+
+  const totalFilas = secciones.reduce((acc, s) => acc + s.filas.length, 0);
+  const totalIncluidas = secciones.reduce((acc, s) => acc + s.filas.filter((f) => f.incluir).length, 0);
 
   return (
     <div className="min-h-screen" style={{ background: "var(--background)" }}>
@@ -170,8 +205,8 @@ function ImportarContent() {
             <RefreshCw size={32} style={{ color: "var(--foreground-subtle)" }} />
             <p className="font-bold" style={{ color: "var(--foreground)" }}>Todavía no hay datos sincronizados</p>
             <p className="text-sm max-w-sm" style={{ color: "var(--foreground-muted)" }}>
-              Abrí el Plan de estudio en el portal de tu universidad y usá el botón
-              &quot;Sincronizar ahora&quot; del ícono de la extensión.
+              Abrí SIU Guaraní y usá el botón &quot;Sincronizar ahora&quot; del ícono de la extensión.
+              Recorre todas tus carreras automáticamente, puede tardar uno o dos minutos.
             </p>
           </div>
         )}
@@ -181,8 +216,7 @@ function ImportarContent() {
             <div className="rounded-2xl p-4 border flex items-center gap-3" style={cardStyle}>
               <CheckCircle2 size={20} style={{ color: "var(--color-success)" }} />
               <div className="text-sm" style={{ color: "var(--foreground)" }}>
-                <strong>{filas.length}</strong> materias detectadas
-                {scrapeData.carrera ? <> en <strong>{scrapeData.carrera}</strong></> : null}
+                <strong>{totalFilas}</strong> materias detectadas en <strong>{secciones.length}</strong> carrera{secciones.length !== 1 ? "s" : ""}
                 {" "}({scrapeData.universidad})
               </div>
             </div>
@@ -191,7 +225,7 @@ function ImportarContent() {
               <div className="p-3 rounded-xl text-sm"
                 style={{ background: "var(--estado-cursando-bg)", color: "var(--estado-cursando)" }}>
                 <p className="font-semibold mb-1">
-                  {scrapeData.errores.length} {scrapeData.errores.length === 1 ? "materia tuvo" : "materias tuvieron"} un problema al leerse (se importó igual el resto):
+                  {scrapeData.errores.length} {scrapeData.errores.length === 1 ? "problema" : "problemas"} durante la sincronización (se importó igual el resto):
                 </p>
                 <ul className="list-disc list-inside space-y-0.5">
                   {scrapeData.errores.map((e, i) => <li key={i}>{e}</li>)}
@@ -206,70 +240,83 @@ function ImportarContent() {
               </div>
             )}
 
-            <div className="rounded-2xl p-5 border" style={cardStyle}>
-              <label className="block text-sm font-semibold mb-2" style={{ color: "var(--foreground-muted)" }}>
-                <GraduationCap size={14} className="inline mr-1" />
-                Vincular a la carrera
-              </label>
-              <select value={carreraId} onChange={(e) => setCarreraId(e.target.value)} style={{ ...inputStyle, width: "100%" }}>
-                <option value={SIN_CARRERA}>Sin vincular a ninguna carrera</option>
-                {carreras.map((c) => (
-                  <option key={c.id} value={c.id}>{c.nombre}</option>
-                ))}
-                <option value={NUEVA_CARRERA}>+ Crear nueva carrera</option>
-              </select>
-              {carreraId === NUEVA_CARRERA && (
-                <input
-                  className="mt-2"
-                  style={{ ...inputStyle, width: "100%" }}
-                  value={nombreNuevaCarrera}
-                  onChange={(e) => setNombreNuevaCarrera(e.target.value)}
-                  placeholder="Nombre de la nueva carrera"
-                />
-              )}
-            </div>
+            {secciones.map((seccion, iSeccion) => (
+              <div key={iSeccion} className="rounded-2xl border overflow-hidden" style={cardStyle}>
+                <div className="p-4 border-b" style={{ borderColor: "var(--color-card-border)" }}>
+                  <p className="font-bold text-sm mb-3" style={{ color: "var(--foreground)" }}>
+                    {seccion.nombreOriginal ?? "Sin carrera detectada"}
+                    <span className="ml-2 font-normal text-xs" style={{ color: "var(--foreground-subtle)" }}>
+                      {seccion.filas.length} materias
+                    </span>
+                  </p>
+                  <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>
+                    <GraduationCap size={12} className="inline mr-1" />
+                    Vincular a la carrera
+                  </label>
+                  <select
+                    value={seccion.carreraId}
+                    onChange={(e) => actualizarSeccion(iSeccion, { carreraId: e.target.value })}
+                    style={{ ...inputStyle, width: "100%" }}
+                  >
+                    <option value={SIN_CARRERA}>Sin vincular a ninguna carrera</option>
+                    {carreras.map((c) => (
+                      <option key={c.id} value={c.id}>{c.nombre}</option>
+                    ))}
+                    <option value={NUEVA_CARRERA}>+ Crear nueva carrera</option>
+                  </select>
+                  {seccion.carreraId === NUEVA_CARRERA && (
+                    <input
+                      className="mt-2"
+                      style={{ ...inputStyle, width: "100%" }}
+                      value={seccion.nombreNuevaCarrera}
+                      onChange={(e) => actualizarSeccion(iSeccion, { nombreNuevaCarrera: e.target.value })}
+                      placeholder="Nombre de la nueva carrera"
+                    />
+                  )}
+                </div>
 
-            <div className="rounded-2xl border overflow-hidden" style={cardStyle}>
-              <div className="divide-y" style={{ borderColor: "var(--color-card-border)" }}>
-                {filas.map((f, i) => (
-                  <div key={`${f.nombre}-${i}`} className="flex items-center gap-3 p-3"
-                    style={{ opacity: f.incluir ? 1 : 0.45 }}>
-                    <input
-                      type="checkbox"
-                      checked={f.incluir}
-                      onChange={(e) => actualizarFila(i, { incluir: e.target.checked })}
-                      className="w-4 h-4 flex-shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold truncate" style={{ color: "var(--foreground)" }}>
-                        {f.nombre}
-                      </p>
-                      <p className="text-xs" style={{ color: "var(--foreground-subtle)" }}>
-                        {f.codigo_interno ?? "—"} · {f.periodo_texto ?? "sin período"}
-                        {f.año_plan ? ` · Año ${f.año_plan}` : ""}
-                      </p>
+                <div className="divide-y" style={{ borderColor: "var(--color-card-border)" }}>
+                  {seccion.filas.map((f, iFila) => (
+                    <div key={`${f.nombre}-${iFila}`} className="flex items-center gap-3 p-3"
+                      style={{ opacity: f.incluir ? 1 : 0.45 }}>
+                      <input
+                        type="checkbox"
+                        checked={f.incluir}
+                        onChange={(e) => actualizarFila(iSeccion, iFila, { incluir: e.target.checked })}
+                        className="w-4 h-4 flex-shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate" style={{ color: "var(--foreground)" }}>
+                          {f.nombre}
+                        </p>
+                        <p className="text-xs" style={{ color: "var(--foreground-subtle)" }}>
+                          {f.codigo_interno ?? "—"} · {f.periodo_texto ?? "sin período"}
+                          {f.año_plan ? ` · Año ${f.año_plan}` : ""}
+                          {f.fecha_aprobacion ? ` · aprobada ${f.fecha_aprobacion}` : ""}
+                        </p>
+                      </div>
+                      <select
+                        value={f.estado}
+                        onChange={(e) => actualizarFila(iSeccion, iFila, { estado: e.target.value as EstadoMateria })}
+                        style={{ ...inputStyle, fontSize: "12px", padding: "0.4rem 0.5rem" }}
+                      >
+                        {ESTADOS.map((e) => <option key={e} value={e}>{e}</option>)}
+                      </select>
+                      <input
+                        type="number"
+                        min={0}
+                        max={10}
+                        step={0.5}
+                        value={f.nota ?? ""}
+                        onChange={(e) => actualizarFila(iSeccion, iFila, { nota: e.target.value ? Number(e.target.value) : null })}
+                        placeholder="Nota"
+                        style={{ ...inputStyle, width: "4.5rem", fontSize: "12px", padding: "0.4rem 0.5rem" }}
+                      />
                     </div>
-                    <select
-                      value={f.estado}
-                      onChange={(e) => actualizarFila(i, { estado: e.target.value as EstadoMateria })}
-                      style={{ ...inputStyle, fontSize: "12px", padding: "0.4rem 0.5rem" }}
-                    >
-                      {ESTADOS.map((e) => <option key={e} value={e}>{e}</option>)}
-                    </select>
-                    <input
-                      type="number"
-                      min={0}
-                      max={10}
-                      step={0.5}
-                      value={f.nota ?? ""}
-                      onChange={(e) => actualizarFila(i, { nota: e.target.value ? Number(e.target.value) : null })}
-                      placeholder="Nota"
-                      style={{ ...inputStyle, width: "4.5rem", fontSize: "12px", padding: "0.4rem 0.5rem" }}
-                    />
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
+            ))}
 
             <div className="flex gap-3">
               <Link href="/materias"
@@ -279,13 +326,13 @@ function ImportarContent() {
               </Link>
               <button
                 onClick={handleImportar}
-                disabled={estado === "importando" || filas.every((f) => !f.incluir)}
+                disabled={estado === "importando" || totalIncluidas === 0}
                 className="flex-1 py-3 rounded-xl font-bold text-sm transition-all hover:opacity-90 flex items-center justify-center gap-2"
                 style={{ background: "var(--color-primary)", color: "white" }}
               >
                 {estado === "importando"
                   ? <><Loader2 size={16} className="animate-spin" /> Importando...</>
-                  : `Importar ${filas.filter((f) => f.incluir).length} materias`}
+                  : `Importar ${totalIncluidas} materias`}
               </button>
             </div>
           </div>
@@ -310,8 +357,4 @@ function ImportarContent() {
       </div>
     </div>
   );
-}
-
-export default function ImportarPage() {
-  return <AuthGuard><ImportarContent /></AuthGuard>;
 }

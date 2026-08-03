@@ -5,11 +5,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Plus, Search, Filter, BookOpen, CheckCircle, Clock, AlertCircle, Import, Layers } from "lucide-react";
-import { AuthGuard } from "@/components/auth/AuthGuard";
+import { Plus, Search, BookOpen, Import, Layers } from "lucide-react";
 import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useMaterias } from "@/hooks/useMaterias";
-import { useCarreras } from "@/hooks/useCarreras";
+import { useCarreraActivaContext } from "@/components/dashboard/CarreraActivaProvider";
 import MateriaCard from "@/components/ui/MateriaCard";
 import { updateEvaluacion } from "@/lib/firestore";
 import { EstadoMateria } from "@/types";
@@ -23,10 +22,10 @@ const FILTROS_ESTADO: { label: string; value: EstadoMateria | "todas" }[] = [
   { label: "Libres", value: "libre" },
 ];
 
-function MateriasContent() {
+export default function MateriasPage() {
   const { user } = useAuthContext();
   const { materias, loading } = useMaterias(user?.uid ?? null);
-  const { carreras, carreraActivaId, setCarreraActivaId } = useCarreras(user?.uid ?? null);
+  const { carreraActivaId } = useCarreraActivaContext();
 
   const [busqueda, setBusqueda] = useState("");
   const [filtroEstado, setFiltroEstado] = useState<EstadoMateria | "todas">("todas");
@@ -52,19 +51,15 @@ function MateriasContent() {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <Link href="/" className="text-sm mb-1 block hover:underline"
-              style={{ color: "var(--foreground-muted)" }}>
-              ← Volver
-            </Link>
             <h1 className="text-2xl font-extrabold" style={{ color: "var(--foreground)" }}>
               Todas las materias
             </h1>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/materias/correlativas"
+            <Link href="/materias/pasos"
               className="flex items-center gap-2 px-3 py-2 rounded-xl font-semibold text-sm border transition-all hover:opacity-80"
               style={{ borderColor: "var(--color-card-border)", color: "var(--foreground)" }}>
-              <Layers size={16} /> <span className="hidden sm:inline">Correlativas</span>
+              <Layers size={16} /> <span className="hidden sm:inline">Plan de ruta</span>
             </Link>
             <Link href="/materias/importar"
               className="flex items-center gap-2 px-3 py-2 rounded-xl font-semibold text-sm border transition-all hover:opacity-80"
@@ -158,8 +153,4 @@ function MateriasContent() {
       </div>
     </div>
   );
-}
-
-export default function MateriasPage() {
-  return <AuthGuard><MateriasContent /></AuthGuard>;
 }

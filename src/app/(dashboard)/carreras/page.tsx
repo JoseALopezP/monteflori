@@ -4,11 +4,9 @@
 // Gestión de carreras del usuario
 
 import { useState } from "react";
-import Link from "next/link";
-import { Plus, GraduationCap, Trash2, Edit, Building } from "lucide-react";
-import { AuthGuard } from "@/components/auth/AuthGuard";
+import { Plus, GraduationCap, Trash2, Building, Star, Globe } from "lucide-react";
 import { useAuthContext } from "@/components/auth/AuthProvider";
-import { useCarreras } from "@/hooks/useCarreras";
+import { useCarreraActivaContext } from "@/components/dashboard/CarreraActivaProvider";
 import { useMaterias } from "@/hooks/useMaterias";
 import { addCarrera, deleteCarrera } from "@/lib/firestore";
 import { calcularPorcentajeAvance, calcularPromedioGeneral } from "@/lib/calculo-notas";
@@ -18,9 +16,9 @@ const COLORES = [
   "#e07a5f", "#059669", "#dc2626", "#0284c7",
 ];
 
-function CarrerasContent() {
+export default function CarrerasPage() {
   const { user } = useAuthContext();
-  const { carreras, loading, setCarreraActivaId, refetch } = useCarreras(user?.uid ?? null);
+  const { carreras, loading, carreraActivaId, setCarreraActivaId, refetchCarreras } = useCarreraActivaContext();
   const { materias } = useMaterias(user?.uid ?? null);
 
   const [showForm, setShowForm] = useState(false);
@@ -45,7 +43,7 @@ function CarrerasContent() {
       setInstitucion("");
       setTotalMaterias("");
       setShowForm(false);
-      refetch();
+      refetchCarreras();
     } finally {
       setGuardando(false);
     }
@@ -55,7 +53,8 @@ function CarrerasContent() {
     if (!user?.uid) return;
     if (!confirm("¿Seguro que querés eliminar esta carrera? Las materias vinculadas no se eliminarán.")) return;
     await deleteCarrera(user.uid, cid);
-    refetch();
+    if (carreraActivaId === cid) setCarreraActivaId(null);
+    refetchCarreras();
   }
 
   const inputStyle = {
@@ -73,10 +72,8 @@ function CarrerasContent() {
     <div className="min-h-screen" style={{ background: "var(--background)" }}>
       <div className="max-w-2xl mx-auto px-4 py-6">
 
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-2">
           <div>
-            <Link href="/" className="text-sm mb-1 block hover:underline"
-              style={{ color: "var(--foreground-muted)" }}>← Volver</Link>
             <h1 className="text-2xl font-extrabold" style={{ color: "var(--foreground)" }}>
               Mis carreras
             </h1>
@@ -89,6 +86,20 @@ function CarrerasContent() {
             <Plus size={16} /> Nueva carrera
           </button>
         </div>
+
+        {/* Marcar vista global como principal */}
+        <button
+          onClick={() => setCarreraActivaId(null)}
+          className="flex items-center gap-2 mb-6 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all hover:opacity-80"
+          style={{
+            borderColor: carreraActivaId === null ? "var(--color-primary)" : "var(--color-card-border)",
+            color: carreraActivaId === null ? "var(--color-primary)" : "var(--foreground-muted)",
+            background: carreraActivaId === null ? "var(--estado-aprobada-bg)" : "transparent",
+          }}
+        >
+          {carreraActivaId === null ? <Star size={13} fill="currentColor" /> : <Globe size={13} />}
+          {carreraActivaId === null ? "Vista global es tu carrera principal" : "Usar vista global como principal"}
+        </button>
 
         {/* Formulario inline */}
         {showForm && (
@@ -179,25 +190,47 @@ function CarrerasContent() {
               const porcentaje = calcularPorcentajeAvance(materiasCarrera, carrera.total_materias_plan);
               const promedio = calcularPromedioGeneral(materiasCarrera);
 
+              const esPrincipal = carreraActivaId === carrera.id;
+
               return (
                 <div key={carrera.id}
                   className="rounded-2xl p-5 border transition-all hover:shadow-md"
-                  style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)", borderLeft: `4px solid ${carrera.color ?? "var(--color-primary)"}` }}>
+                  style={{
+                    background: "var(--color-card)",
+                    borderColor: esPrincipal ? "var(--color-primary)" : "var(--color-card-border)",
+                    borderLeft: `4px solid ${carrera.color ?? "var(--color-primary)"}`,
+                  }}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-base truncate" style={{ color: "var(--foreground)" }}>
-                        {carrera.nombre}
-                      </h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-base truncate" style={{ color: "var(--foreground)" }}>
+                          {carrera.nombre}
+                        </h3>
+                        {esPrincipal && (
+                          <span className="flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+                            style={{ background: "var(--estado-aprobada-bg)", color: "var(--estado-aprobada)" }}>
+                            <Star size={10} fill="currentColor" /> Principal
+                          </span>
+                        )}
+                      </div>
                       {carrera.institucion && (
                         <p className="text-sm flex items-center gap-1.5 mt-0.5" style={{ color: "var(--foreground-muted)" }}>
                           <Building size={12} /> {carrera.institucion}
                         </p>
                       )}
                     </div>
-                    <button onClick={() => handleEliminar(carrera.id)} className="p-2 rounded-lg hover:opacity-75 transition-opacity flex-shrink-0"
-                      style={{ color: "var(--color-alert)" }} aria-label="Eliminar carrera">
-                      <Trash2 size={16} />
-                    </button>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {!esPrincipal && (
+                        <button onClick={() => setCarreraActivaId(carrera.id)} className="p-2 rounded-lg hover:opacity-75 transition-opacity"
+                          style={{ color: "var(--foreground-subtle)" }} title="Marcar como principal" aria-label="Marcar como principal">
+                          <Star size={16} />
+                        </button>
+                      )}
+                      <button onClick={() => handleEliminar(carrera.id)} className="p-2 rounded-lg hover:opacity-75 transition-opacity"
+                        style={{ color: "var(--color-alert)" }} aria-label="Eliminar carrera">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mt-4">
@@ -224,8 +257,4 @@ function CarrerasContent() {
       </div>
     </div>
   );
-}
-
-export default function CarrerasPage() {
-  return <AuthGuard><CarrerasContent /></AuthGuard>;
 }

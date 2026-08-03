@@ -44,7 +44,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
 btnSync.addEventListener("click", async () => {
   btnSync.disabled = true;
   btnSync.textContent = "⏳ Sincronizando...";
-  msg.textContent = "Extrayendo datos del portal...";
+  msg.textContent = "Recorriendo tus carreras y materias — puede tardar uno o dos minutos, no cierres esta ventana.";
   msg.className = "";
 
   try {
@@ -52,8 +52,9 @@ btnSync.addEventListener("click", async () => {
     const response = await chrome.runtime.sendMessage({ type: "SGAI_REQUEST_SCRAPE" });
 
     if (response?.ok && response.datos) {
-      const { materias } = response.datos;
-      msg.textContent = `✓ ${materias.length} materias encontradas. Abriendo Monteflori...`;
+      const totalMaterias = (response.datos.carreras ?? []).reduce((acc, c) => acc + c.materias.length, 0);
+      const totalCarreras = (response.datos.carreras ?? []).length;
+      msg.textContent = `✓ ${totalMaterias} materias en ${totalCarreras} carrera${totalCarreras !== 1 ? "s" : ""}. Abriendo Monteflori...`;
       msg.className = "ok";
 
       // El background ya guardó los datos en chrome.storage.local.

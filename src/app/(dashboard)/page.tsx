@@ -1,25 +1,20 @@
 "use client";
 
-// src/app/page.tsx
+// src/app/(dashboard)/page.tsx
 // Dashboard principal de Monteflori
 
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   BookOpen, GraduationCap, Award, Calendar,
-  Plus, Settings, LogOut, Sun, Moon, Bell,
-  ChevronRight, Layers, User
+  Plus, ChevronRight, Layers,
 } from "lucide-react";
 
-
-import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useAuthContext } from "@/components/auth/AuthProvider";
-import { useTheme } from "@/hooks/useTheme";
 import { useMaterias } from "@/hooks/useMaterias";
-import { useCarreras } from "@/hooks/useCarreras";
+import { useCarreraActivaContext } from "@/components/dashboard/CarreraActivaProvider";
 import { StatsCard } from "@/components/dashboard/StatsCard";
-import { CarreraToggle } from "@/components/dashboard/CarreraToggle";
 import { ProgresoCarrera } from "@/components/dashboard/ProgresoCarrera";
 import { ProximasFechas } from "@/components/dashboard/ProximasFechas";
 import MotivacionalBanner from "@/components/ui/MotivacionalBanner";
@@ -30,15 +25,13 @@ import {
   calcularPorcentajeAvance,
 } from "@/lib/calculo-notas";
 
-function DashboardContent() {
+export default function HomePage() {
   const { user, loading: authLoading } = useAuthContext();
-  const { toggleTema, temaActual } = useTheme();
   const router = useRouter();
 
-  const { materias, materiasCursando, materiasAprobadas, loading: matLoading } = useMaterias(user?.uid ?? null);
-  const { carreras, carreraActivaId, setCarreraActivaId, carreraActiva } = useCarreras(user?.uid ?? null);
+  const { materias, loading: matLoading } = useMaterias(user?.uid ?? null);
+  const { carreras, carreraActivaId, carreraActiva, loading: carLoading } = useCarreraActivaContext();
 
-  // Filtrar materias por carrera activa
   const materiasFiltradas = carreraActivaId
     ? materias.filter((m) => m.carreras_vinculadas?.includes(carreraActivaId))
     : materias;
@@ -67,7 +60,7 @@ function DashboardContent() {
     [user, materias]
   );
 
-  const loading = authLoading || matLoading;
+  const loading = authLoading || matLoading || carLoading;
 
   if (loading) {
     return (
@@ -85,124 +78,6 @@ function DashboardContent() {
 
   return (
     <div className="min-h-screen" style={{ background: "var(--background)" }}>
-
-      {/* ── Header ── */}
-      <header
-        className="sticky top-0 z-40 border-b"
-        style={{
-          background: "var(--color-card)",
-          borderColor: "var(--color-card-border)",
-        }}
-      >
-        <div className="max-w-5xl mx-auto px-4 h-15 flex items-center justify-between gap-3">
-
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5 flex-shrink-0">
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center"
-              style={{ background: "var(--color-primary)" }}
-            >
-              <BookOpen size={15} color="white" />
-            </div>
-            <span
-              className="font-semibold text-lg hidden sm:block"
-              style={{ color: "var(--foreground)" }}
-            >
-              Monteflori
-            </span>
-          </Link>
-
-          {/* Centro: toggle carrera */}
-          <div className="flex-1 flex justify-center">
-            <CarreraToggle
-              carreras={carreras}
-              carreraActivaId={carreraActivaId}
-              onChange={setCarreraActivaId}
-            />
-          </div>
-
-          {/* Acciones */}
-          <div className="flex items-center gap-1.5">
-            {/* Toggle tema */}
-            <button
-              id="btn-toggle-tema"
-              onClick={toggleTema}
-              className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:opacity-75"
-              style={{ background: "var(--background-alt)" }}
-              title={temaActual === "oscuro" ? "Modo claro" : "Modo oscuro"}
-              aria-label="Cambiar tema"
-            >
-              {temaActual === "oscuro"
-                ? <Sun size={16} style={{ color: "var(--color-accent)" }} />
-                : <Moon size={16} style={{ color: "var(--foreground-muted)" }} />
-              }
-            </button>
-
-            {/* Avatar / menú */}
-            <div className="relative group">
-              <button
-                id="btn-user-menu"
-                className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm transition-all hover:opacity-80 overflow-hidden"
-                style={{ background: "var(--color-primary)", color: "white" }}
-                aria-label="Menú de usuario"
-              >
-                {user?.photoURL ? (
-                  <img src={user.photoURL} alt="Avatar" className="w-full h-full object-cover" />
-                ) : (
-                  user?.displayName?.[0]?.toUpperCase() ?? "U"
-                )}
-              </button>
-
-              {/* Dropdown menú */}
-              <div
-                className="absolute right-0 top-full mt-2 w-52 rounded-xl border shadow-lg py-1 hidden group-focus-within:block group-hover:block"
-                style={{
-                  background: "var(--color-card)",
-                  borderColor: "var(--color-card-border)",
-                  boxShadow: "var(--shadow-lg)",
-                  zIndex: 50,
-                }}
-              >
-                <div
-                  className="px-4 py-2 border-b"
-                  style={{ borderColor: "var(--color-card-border)" }}
-                >
-                  <p className="text-sm font-semibold truncate" style={{ color: "var(--foreground)" }}>
-                    {user?.displayName ?? "Estudiante"}
-                  </p>
-                  <p className="text-xs truncate" style={{ color: "var(--foreground-subtle)" }}>
-                    {user?.email}
-                  </p>
-                </div>
-                <Link href="/perfil"
-                  className="flex items-center gap-3 px-4 py-2.5 text-sm hover:opacity-75 transition-opacity"
-                  style={{ color: "var(--foreground)" }}>
-                  <User size={14} /> Mi perfil
-                </Link>
-                <Link href="/configuracion"
-                  className="flex items-center gap-3 px-4 py-2.5 text-sm hover:opacity-75 transition-opacity"
-                  style={{ color: "var(--foreground)" }}>
-                  <Settings size={14} /> Configuración
-                </Link>
-                <button
-                  onClick={async () => {
-                    const { auth } = await import("@/lib/firebase");
-                    const { signOut } = await import("firebase/auth");
-                    await signOut(auth);
-                    router.push("/login");
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:opacity-75 transition-opacity"
-                  style={{ color: "var(--color-alert)" }}
-                >
-                  <LogOut size={14} /> Cerrar sesión
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* ── Contenido principal ── */}
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
 
         {/* Saludo */}
@@ -232,12 +107,10 @@ function DashboardContent() {
         </div>
 
         {/* Banner motivacional */}
-        {materias.length >= 0 && (
-          <MotivacionalBanner
-            materias={materiasFiltradas}
-            totalMateriasPlan={carreraActiva?.total_materias_plan}
-          />
-        )}
+        <MotivacionalBanner
+          materias={materiasFiltradas}
+          totalMateriasPlan={carreraActiva?.total_materias_plan}
+        />
 
         {/* ── Stats cards ── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -375,13 +248,5 @@ function DashboardContent() {
         )}
       </main>
     </div>
-  );
-}
-
-export default function HomePage() {
-  return (
-    <AuthGuard>
-      <DashboardContent />
-    </AuthGuard>
   );
 }

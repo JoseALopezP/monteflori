@@ -9,7 +9,7 @@ console.log("[Monteflori] Content script cargado en:", window.location.hostname)
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "SGAI_SCRAPE_GUARANI") {
-    const promesa = esSiuGuarani() ? extraerGuarani() : Promise.resolve(extraerGenerico());
+    const promesa = esSiuGuarani() ? sincronizarTodo() : Promise.resolve(extraerGenerico());
     promesa
       .then((datos) => sendResponse({ ok: true, datos }))
       .catch((err) => sendResponse({ ok: false, error: String(err?.message ?? err) }));
@@ -218,6 +218,139 @@ function obtenerCarreraActiva() {
   return seleccionada?.getAttribute("title")?.trim() ?? seleccionada?.textContent?.trim() ?? null;
 }
 
+// ── Navegación entre secciones (SPA vía AJAX/pagelets) ───────
+//
+// Los links de "Reportes" (Plan de estudio, Historia académica, etc.) y el
+// dropdown de carreras NO recargan la página — SIU Guaraní los intercepta y
+// reemplaza el contenido vía AJAX. Por eso el content script no se pierde:
+// solo hay que clickear y esperar a que aparezca el marcador de la sección
+// destino. click() vía JS funciona aunque el link esté oculto por CSS
+// (dropdown cerrado), no hace falta abrir el menú primero.
+
+async function irASeccion(idNavLi, marcadorSelector) {
+  if (document.querySelector(marcadorSelector)) return true; // ya estamos ahí
+  const link = document.querySelector(`#${idNavLi} a`);
+  if (!link) return false;
+  link.click();
+  const ok = await esperarCondicion(() => !!document.querySelector(marcadorSelector), 10000);
+  if (ok) await esperar(300); // margen para que termine de pintar el contenido
+  return ok;
+}
+
+// ── Cambio de carrera activa ──────────────────────────────────
+
+function obtenerCarrerasDisponibles() {
+  return Array.from(document.querySelectorAll(".js-select-carreras[data-carrera-id]")).map((a) => ({
+    id: a.dataset.carreraId,
+    nombre: (a.getAttribute("title") || a.textContent || "").trim(),
+    seleccionada: a.classList.contains("selected"),
+  }));
+}
+
+async function cambiarCarrera(carreraId) {
+  const link = document.querySelector(`.js-select-carreras[data-carrera-id="${carreraId}"]`);
+  if (!link) return false;
+  if (link.classList.contains("selected")) return true;
+
+  const tituloPrevio = obtenerCarreraActiva();
+  link.click();
+  const ok = await esperarCondicion(() => obtenerCarreraActiva() !== tituloPrevio, 10000);
+  if (ok) await esperar(400);
+  return ok;
+}
+
+// ── Historia académica (fechas y notas reales de cada acto) ──
+//
+// Complementa el Plan de estudio: da fecha exacta y nota de cada regularidad/
+// promoción/examen, no solo el período. Se cruza con Plan de estudio por
+// código de materia (ej. "F12400"), que aparece igual en ambas páginas.
+
+const ATRIBUTOS_TIPO_ACTO = ["encurso", "regularidad", "promocion", "examen"];
+
+function normalizarEspacios(s) {
+  return (s ?? "").replace(/\s+/g, " ").trim();
+}
+
+/** "18/11/2025" → "2025-11-18" (ISO, más útil para ordenar/graficar) */
+function fechaArToISO(texto) {
+  const m = (texto ?? "").match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
+}
+
+function parseCatedra(divCatedra) {
+  const atributo = ATRIBUTOS_TIPO_ACTO.find((a) => divCatedra.hasAttribute(a));
+  if (!atributo) return null;
+
+  const resultado = divCatedra.getAttribute(atributo) || null;
+  const span = divCatedra.querySelector(".catedra_nombre span");
+  const texto = normalizarEspacios(span?.textContent);
+
+  const notaMatch = texto.match(/(\d{1,2})\s*\([^)]*\)/);
+  const nota = notaMatch ? parseInt(notaMatch[1], 10) : null;
+  const fecha = fechaArToISO(texto);
+
+  const divInfo = divCatedra.querySelector(".toggle_info_catedra");
+  const vencimiento = divInfo ? fechaArToISO(divInfo.textContent.match(/Vencimiento:\s*[\d/]+/)?.[0]) : null;
+
+  return {
+    tipo: atributo === "encurso" ? "en_curso" : atributo,
+    resultado,
+    nota,
+    fecha,
+    vencimiento,
+  };
+}
+
+/** Click en "Historia completa" del cuadro de consultas habituales, si existe. */
+async function irAHistoriaCompleta() {
+  const link = document.querySelector('.js-consultas_habituales a[consulta="todo"]');
+  if (!link) return; // puede que ya muestre todo por defecto
+  link.click();
+  await esperar(600);
+}
+
+function extraerHistoriaAcademica() {
+  const grupos = Array.from(document.querySelectorAll("#listado > .catedras"));
+  return grupos
+    .map((grupo) => {
+      const tituloTexto = grupo.querySelector("h3.titulo-corte")?.textContent ?? "";
+      const { nombre, codigo } = parseNombreCodigo(tituloTexto);
+      const actos = Array.from(grupo.querySelectorAll(":scope > .catedra"))
+        .map(parseCatedra)
+        .filter(Boolean);
+      return { nombre, codigo_interno: codigo, actos };
+    })
+    .filter((m) => m.nombre);
+}
+
+/**
+ * Cruza los actos de Historia académica con las materias de Plan de estudio
+ * por código. Prioriza la nota/fecha de Promoción, y si no hay, la de Examen
+ * aprobado — eso es lo que efectivamente aprueba la materia.
+ */
+function fusionarHistoria(materiasPlan, materiasHistoria) {
+  const historiaPorCodigo = new Map();
+  materiasHistoria.forEach((h) => {
+    if (h.codigo_interno) historiaPorCodigo.set(h.codigo_interno, h);
+  });
+
+  return materiasPlan.map((m) => {
+    const h = m.codigo_interno ? historiaPorCodigo.get(m.codigo_interno) : null;
+    if (!h) return m;
+
+    const promocion = h.actos.find((a) => a.tipo === "promocion");
+    const examenAprobado = h.actos.find((a) => a.tipo === "examen" && /aprob/i.test(a.resultado ?? ""));
+    const actoFinal = promocion ?? examenAprobado;
+
+    return {
+      ...m,
+      nota: actoFinal?.nota ?? m.nota,
+      fecha_aprobacion: actoFinal?.fecha ?? null,
+      actos_academicos: h.actos,
+    };
+  });
+}
+
 // ── Detección de portal ──────────────────────────────────────
 
 function esSiuGuarani() {
@@ -229,14 +362,14 @@ function esSiuGuarani() {
   );
 }
 
-// ── Orquestador principal ───────────────────────────────────
+// ── Extracción de la sección "Plan de estudio" actualmente visible ──
 
-async function extraerGuarani() {
+async function extraerPlanDeEstudioActual() {
   const tabla = encontrarTablaMaterias();
 
   if (!tabla) {
     throw new Error(
-      "No se encontró la tabla de materias en esta página. Abrí Plan de estudio → Reportes → Plan de estudio en SIU Guaraní."
+      "No se encontró la tabla de materias. Puede que esta instancia de Guaraní use una estructura distinta a la esperada."
     );
   }
 
@@ -244,9 +377,7 @@ async function extraerGuarani() {
   const filasMateria = Array.from(tabla.querySelectorAll("tr.materia"));
 
   if (filasMateria.length === 0) {
-    throw new Error(
-      "La tabla de materias está vacía o no se reconoció ninguna fila. Puede que esta instancia de Guaraní use una estructura distinta a la esperada."
-    );
+    throw new Error("La tabla de materias está vacía o no se reconoció ninguna fila.");
   }
 
   const materias = [];
@@ -274,11 +405,62 @@ async function extraerGuarani() {
     materias.push(materia);
   }
 
+  return { materias, errores };
+}
+
+// ── Orquestador principal: recorre cada carrera y ambas secciones ──
+
+async function sincronizarTodo() {
+  const errores = [];
+  const disponibles = obtenerCarrerasDisponibles();
+  const listaCarreras = disponibles.length > 0
+    ? disponibles
+    : [{ id: null, nombre: obtenerCarreraActiva() }];
+
+  const resultado = [];
+
+  for (const c of listaCarreras) {
+    if (c.id) {
+      const cambio = await cambiarCarrera(c.id);
+      if (!cambio) {
+        errores.push(`No se pudo cambiar a la carrera "${c.nombre}" — se omite.`);
+        continue;
+      }
+    }
+
+    let materias = [];
+
+    try {
+      const llegoAPlan = await irASeccion("plan_estudio", "#info_plan");
+      if (!llegoAPlan) throw new Error("no se pudo abrir la sección");
+      const datosPlan = await extraerPlanDeEstudioActual();
+      materias = datosPlan.materias;
+      datosPlan.errores.forEach((e) => errores.push(`[${c.nombre}] Plan de estudio: ${e}`));
+    } catch (err) {
+      errores.push(`[${c.nombre}] Plan de estudio: ${err?.message ?? err}`);
+      continue; // sin plan de estudio no hay nada que importar de esta carrera
+    }
+
+    try {
+      const llegoAHistoria = await irASeccion("historia_academica", "#info_historia");
+      if (llegoAHistoria) {
+        await irAHistoriaCompleta();
+        const materiasHistoria = extraerHistoriaAcademica();
+        materias = fusionarHistoria(materias, materiasHistoria);
+      } else {
+        errores.push(`[${c.nombre}] No se pudo abrir Historia académica (se importó igual el Plan de estudio).`);
+      }
+    } catch (err) {
+      errores.push(`[${c.nombre}] Historia académica: ${err?.message ?? err}`);
+    }
+
+    resultado.push({ carrera: c.nombre, materias });
+  }
+
   return {
     portal: "SIU Guaraní",
     universidad: window.location.hostname,
-    carrera: obtenerCarreraActiva(),
-    materias,
+    carreras: resultado,
     errores: errores.length > 0 ? errores : undefined,
     timestamp: new Date().toISOString(),
     url: window.location.href,
@@ -309,8 +491,7 @@ function extraerGenerico() {
   return {
     portal: "generico",
     universidad: window.location.hostname,
-    carrera: null,
-    materias,
+    carreras: [{ carrera: null, materias }],
     timestamp: new Date().toISOString(),
     url: window.location.href,
   };

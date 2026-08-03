@@ -5,6 +5,16 @@
 
 import { EstadoMateria } from "@/types";
 
+export interface ActoAcademico {
+  tipo: "en_curso" | "regularidad" | "promocion" | "examen";
+  resultado: string | null;
+  nota: number | null;
+  /** ISO (YYYY-MM-DD) */
+  fecha: string | null;
+  /** ISO (YYYY-MM-DD), solo regularidades */
+  vencimiento: string | null;
+}
+
 export interface MateriaScrapeada {
   nombre: string;
   codigo_interno?: string;
@@ -14,13 +24,21 @@ export interface MateriaScrapeada {
   nota: number | null;
   estado: EstadoMateria;
   correlativas_nombres: string[];
+  /** ISO, desde Historia académica (promoción o examen final aprobado) */
+  fecha_aprobacion?: string | null;
+  /** Historial completo de actos (regularidad/promoción/examen), desde Historia académica */
+  actos_academicos?: ActoAcademico[];
+}
+
+export interface CarreraScrapeada {
+  carrera: string | null;
+  materias: MateriaScrapeada[];
 }
 
 export interface ScrapeData {
   portal: string;
   universidad: string;
-  carrera: string | null;
-  materias: MateriaScrapeada[];
+  carreras: CarreraScrapeada[];
   /** Errores no fatales durante el scraping (ej. una fila con estructura inesperada) */
   errores?: string[];
   timestamp: string;

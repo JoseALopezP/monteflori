@@ -286,6 +286,7 @@ export async function importarMateriasScrapeadas(
           nombre: "Nota SIU Guaraní",
           tipo: "otro",
           nota: ms.nota,
+          fecha: ms.fecha_aprobacion ?? null,
         });
       }
       await updateMateria(uid, existente.id, {
@@ -307,6 +308,7 @@ export async function importarMateriasScrapeadas(
                 nombre: "Nota SIU Guaraní",
                 tipo: "otro",
                 nota: ms.nota,
+                fecha: ms.fecha_aprobacion ?? null,
               },
             ]
           : [];
