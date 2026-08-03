@@ -5,7 +5,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Plus, Search, Filter, BookOpen, CheckCircle, Clock, AlertCircle, Import } from "lucide-react";
+import { Plus, Search, Filter, BookOpen, CheckCircle, Clock, AlertCircle, Import, Layers } from "lucide-react";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useMaterias } from "@/hooks/useMaterias";
@@ -61,6 +61,11 @@ function MateriasContent() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            <Link href="/materias/correlativas"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl font-semibold text-sm border transition-all hover:opacity-80"
+              style={{ borderColor: "var(--color-card-border)", color: "var(--foreground)" }}>
+              <Layers size={16} /> <span className="hidden sm:inline">Correlativas</span>
+            </Link>
             <Link href="/materias/importar"
               className="flex items-center gap-2 px-3 py-2 rounded-xl font-semibold text-sm border transition-all hover:opacity-80"
               style={{ borderColor: "var(--color-card-border)", color: "var(--foreground)" }}>

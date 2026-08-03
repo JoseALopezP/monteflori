@@ -187,6 +187,18 @@ function ImportarContent() {
               </div>
             </div>
 
+            {scrapeData.errores && scrapeData.errores.length > 0 && (
+              <div className="p-3 rounded-xl text-sm"
+                style={{ background: "var(--estado-cursando-bg)", color: "var(--estado-cursando)" }}>
+                <p className="font-semibold mb-1">
+                  {scrapeData.errores.length} {scrapeData.errores.length === 1 ? "materia tuvo" : "materias tuvieron"} un problema al leerse (se importó igual el resto):
+                </p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  {scrapeData.errores.map((e, i) => <li key={i}>{e}</li>)}
+                </ul>
+              </div>
+            )}
+
             {error && (
               <div className="p-3 rounded-xl flex items-center gap-2 text-sm font-medium"
                 style={{ background: "var(--estado-libre-bg)", color: "var(--color-alert)" }}>

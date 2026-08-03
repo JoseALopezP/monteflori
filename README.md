@@ -1,36 +1,104 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Monteflori
 
-## Getting Started
+Sistema de gestión académica pensado para motivar y hacer seguimiento del progreso universitario: notas, materias, correlativas y fechas importantes en un solo lugar, sin tener que cargar todo a mano.
 
-First, run the development server:
+Incluye una extensión de navegador que lee tus materias y notas directamente desde **SIU Guaraní** (el sistema académico que usan la mayoría de las universidades públicas argentinas) para que no tengas que instalar ningún programa aparte ni tipear todo manualmente.
+
+> ⚠️ Este proyecto corre sobre versiones de Next.js, React y Firebase más nuevas que las habituales, con cambios de comportamiento respecto a lo estándar. Antes de asumir convenciones "de siempre", revisá `AGENTS.md` y la documentación empaquetada en `node_modules/next/dist/docs/`.
+
+## Stack
+
+- **Next.js** (App Router) + **React** + **TypeScript** + **Tailwind CSS**
+- **Firebase**: Auth, Firestore, Storage
+- **Google Calendar API** — sincronización de fechas de exámenes
+- **WhatsApp Cloud API** — bot de recordatorios y consultas (en pausa, ver [Estado del bot de WhatsApp](#estado-del-bot-de-whatsapp))
+- **Extensión de Chrome** (Manifest V3) — scraping de SIU Guaraní
+- **Vitest** — tests unitarios del motor de cálculo de notas
+
+## Empezar
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abrí [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Variables de entorno
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Copiá `.env.local.example` (o creá `.env.local` a mano) con estas claves:
 
-## Learn More
+| Variable | Para qué |
+|---|---|
+| `NEXT_PUBLIC_FIREBASE_API_KEY` | Config del SDK de Firebase (cliente) |
+| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | ídem |
+| `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | ídem |
+| `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` | ídem |
+| `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | ídem |
+| `NEXT_PUBLIC_FIREBASE_APP_ID` | ídem |
+| `FIREBASE_SERVICE_ACCOUNT_KEY` | JSON del service account, para `firebase-admin` (API routes, server-side) |
+| `NEXT_PUBLIC_APP_URL` | URL pública de la app (usada en redirects de OAuth) |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth de Google Calendar |
+| `NEXT_PUBLIC_EXTENSION_ID` | ID de la extensión de Chrome (ya viene fijo en `extension/manifest.json`, no hace falta generarlo de nuevo) |
+| `CRON_SECRET` | Protege el endpoint `/api/cron/send-reminders` |
+| `WHATSAPP_ACCESS_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_VERIFY_TOKEN` / `WHATSAPP_API_VERSION` | WhatsApp Cloud API |
+| `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` / `SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN` | Reporte de errores (opcional, ver [Observabilidad](#observabilidad)) |
 
-To learn more about Next.js, take a look at the following resources:
+### Firebase: pasos que hay que hacer a mano en la consola
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Estos dos pasos **no** están en el repo — hay que hacerlos una vez por proyecto de Firebase:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. **Crear la base de datos de Firestore** en [console.firebase.google.com](https://console.firebase.google.com) → Firestore Database → Crear base de datos. Si nunca se hizo, cualquier lectura/escritura falla con `PERMISSION_DENIED: Cloud Firestore API has not been used...`.
+2. **Publicar las reglas de seguridad**: pegar el contenido de [`firestore.rules`](firestore.rules) y [`storage.rules`](storage.rules) en la consola (Firestore Database → Reglas / Storage → Reglas) y publicar. El repo no las despliega solo — sin esto, todo falla con `Missing or insufficient permissions`.
 
-## Deploy on Vercel
+## Observabilidad
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Errores de cliente y servidor se reportan a [Sentry](https://sentry.io) usando la instrumentación nativa de Next.js (`instrumentation.ts` / `instrumentation-client.ts`, no `sentry.*.config.ts` — ese patrón viejo). **Sin `SENTRY_DSN`/`NEXT_PUBLIC_SENTRY_DSN` configurados, no hace nada** — no requiere cuenta para desarrollar. Para activarlo:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Creá una cuenta y un proyecto Next.js en [sentry.io](https://sentry.io)
+2. Completá `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` en `.env.local`
+3. (Opcional, para subir source maps en el build) `SENTRY_AUTH_TOKEN`
+
+## Tests
+
+```bash
+npm test
+```
+
+Cubre el motor de cálculo de notas (`src/lib/calculo-notas.ts`): promedios, sistemas ponderado/fórmula custom, reglas de aprobación/promoción y porcentaje de avance. Es la lógica más sensible del sistema (define si a alguien le figura una materia como aprobada o no), así que si la tocás, corré los tests.
+
+## La extensión (SIU Guaraní → Monteflori)
+
+Código en [`extension/`](extension). Chrome no permite instalar extensiones sueltas fuera de la Chrome Web Store salvo en modo desarrollador:
+
+1. `chrome://extensions` → activar "Modo de desarrollador"
+2. "Cargar descomprimida" → seleccionar la carpeta `extension/`
+3. Desde el portal de SIU Guaraní (plan de estudio), abrir el popup de la extensión → "Sincronizar ahora"
+4. Te lleva a `/materias/importar` en el dashboard para revisar y confirmar antes de guardar nada
+
+Instrucciones con descarga de `.zip` para gente no técnica: página pública [`/extension`](src/app/extension/page.tsx).
+
+Si cambiás algo en `extension/`, regenerá el `.zip` descargable con:
+
+```bash
+npm run package:extension
+```
+
+**Sobre otras universidades**: el scraper está probado contra una instancia real de SIU Guaraní (UNSJ). El sistema es el mismo que usan muchas otras universidades públicas argentinas, pero puede haber variaciones de versión/skin entre instancias que rompan algún selector. Si falla en otra universidad, el error debería llegar con el estado de la app en la consola del navegador (`[Monteflori] ...`) — mandalo para ajustar el parser.
+
+## Estado del bot de WhatsApp
+
+Funcional pero **en pausa** hasta terminar de endurecerlo: el webhook (`src/app/api/whatsapp/webhook/route.ts`) todavía no valida la firma `X-Hub-Signature-256` de Meta en los `POST` entrantes, así que cualquiera que conozca la URL podría mandar mensajes falsos simulando ser un usuario registrado. No reactivar en producción sin resolver esto antes.
+
+## Estructura
+
+```
+src/app/(auth)/         páginas de login/registro
+src/app/(dashboard)/    dashboard, materias, carreras, correlativas, config
+src/app/api/            API routes (calendar, cron, whatsapp)
+src/components/         componentes de UI, auth, dashboard, grafo
+src/hooks/               hooks de datos (materias, carreras, auth, tema)
+src/lib/                 lógica de negocio pura + integraciones (Firestore, cálculo de notas, grafo, motivación)
+src/types/               tipos compartidos
+extension/               extensión de Chrome (scraper de SIU Guaraní)
+```

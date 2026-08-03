@@ -21,6 +21,8 @@ export interface ScrapeData {
   universidad: string;
   carrera: string | null;
   materias: MateriaScrapeada[];
+  /** Errores no fatales durante el scraping (ej. una fila con estructura inesperada) */
+  errores?: string[];
   timestamp: string;
   sincronizadoEn?: string;
   url?: string;

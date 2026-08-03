@@ -32,6 +32,16 @@ async function esperarCondicion(fn, timeoutMs = 8000, intervaloMs = 150) {
   return false;
 }
 
+// ── Normalización de texto (para comparar headers/estados sin acentos) ──
+
+function normalizar(s) {
+  return (s ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+}
+
 // ── Parsers de campos individuales ──────────────────────────
 
 /** "Adquisición de Lenguas (F12400)" → { nombre, codigo } */
@@ -71,13 +81,59 @@ function inferirEstado(origen, calificador) {
   return "pendiente";
 }
 
+// ── Ubicación de la tabla de materias y mapeo de columnas ────
+//
+// Distintas instancias/versiones de SIU Guaraní pueden variar el orden o la
+// presencia de columnas del "Plan de estudio". En vez de asumir posiciones
+// fijas, leemos el <thead> y mapeamos cada columna por su texto — así el
+// scraper no se rompe si, por ejemplo, "Créditos" no existe en tu facultad
+// o el orden difiere del de UNSJ (única instancia contra la que probamos).
+
+const COLUMNAS_CONOCIDAS = 6; // fallback si no hay <thead> reconocible
+
+function encontrarTablaMaterias() {
+  const especifica = document.querySelector("table.table-bordered.table-condensed");
+  if (especifica && especifica.querySelector("tr.materia")) return especifica;
+
+  // Fallback: cualquier tabla cuyo header mencione "actividad" y "nota"
+  return (
+    Array.from(document.querySelectorAll("table")).find((t) => {
+      const header = normalizar(t.querySelector("thead")?.textContent);
+      return header.includes("actividad") && header.includes("nota");
+    }) ?? null
+  );
+}
+
+function mapearColumnas(tabla) {
+  const ths = Array.from(tabla?.querySelectorAll("thead th") ?? []);
+  const indice = { nombre: 0, anio: 2, periodo: 3, nota: 4, origen: 5 }; // default UNSJ
+
+  if (ths.length === 0) return indice;
+
+  ths.forEach((th, i) => {
+    const t = normalizar(th.textContent);
+    if (t.includes("actividad")) indice.nombre = i;
+    else if (t.includes("ano") || t.includes("anio")) indice.anio = i;
+    else if (t.includes("periodo")) indice.periodo = i;
+    else if (t.includes("nota")) indice.nota = i;
+    else if (t.includes("origen")) indice.origen = i;
+  });
+
+  return indice;
+}
+
 // ── Parseo de una fila <tr class="materia"> ─────────────────
 
-function parseFilaMateria(fila) {
+function parseFilaMateria(fila, columnas) {
   const celdas = fila.querySelectorAll("td");
-  if (celdas.length < 6) return null;
+  if (celdas.length < COLUMNAS_CONOCIDAS) return null;
 
-  const [tdNombre, , tdAnio, tdPeriodo, tdNota, tdOrigen] = celdas;
+  const tdNombre = celdas[columnas.nombre];
+  const tdAnio = celdas[columnas.anio];
+  const tdPeriodo = celdas[columnas.periodo];
+  const tdNota = celdas[columnas.nota];
+  const tdOrigen = celdas[columnas.origen];
+  if (!tdNombre) return null;
 
   const { nombre, codigo } = parseNombreCodigo(tdNombre.textContent);
   if (!nombre) return null;
@@ -176,20 +232,45 @@ function esSiuGuarani() {
 // ── Orquestador principal ───────────────────────────────────
 
 async function extraerGuarani() {
-  const filasMateria = Array.from(document.querySelectorAll("table.table-bordered.table-condensed tr.materia"));
+  const tabla = encontrarTablaMaterias();
+
+  if (!tabla) {
+    throw new Error(
+      "No se encontró la tabla de materias en esta página. Abrí Plan de estudio → Reportes → Plan de estudio en SIU Guaraní."
+    );
+  }
+
+  const columnas = mapearColumnas(tabla);
+  const filasMateria = Array.from(tabla.querySelectorAll("tr.materia"));
 
   if (filasMateria.length === 0) {
     throw new Error(
-      "No se encontraron materias en esta página. Abrí Plan de estudio → Reportes → Plan de estudio en SIU Guaraní."
+      "La tabla de materias está vacía o no se reconoció ninguna fila. Puede que esta instancia de Guaraní use una estructura distinta a la esperada."
     );
   }
 
   const materias = [];
+  const errores = [];
 
+  // Cada fila se procesa de forma aislada: si una falla (estructura inesperada,
+  // AJAX de correlativas que no responde, etc.) seguimos con el resto en vez
+  // de perder toda la sincronización.
   for (const fila of filasMateria) {
-    const materia = parseFilaMateria(fila);
-    if (!materia) continue;
-    materia.correlativas_nombres = await cargarCorrelativasDeFila(fila);
+    let materia;
+    try {
+      materia = parseFilaMateria(fila, columnas);
+      if (!materia) continue;
+    } catch (err) {
+      errores.push(`No se pudo leer una fila de materia: ${err?.message ?? err}`);
+      continue;
+    }
+
+    try {
+      materia.correlativas_nombres = await cargarCorrelativasDeFila(fila);
+    } catch (err) {
+      errores.push(`No se pudieron cargar las correlativas de "${materia.nombre}": ${err?.message ?? err}`);
+    }
+
     materias.push(materia);
   }
 
@@ -198,6 +279,7 @@ async function extraerGuarani() {
     universidad: window.location.hostname,
     carrera: obtenerCarreraActiva(),
     materias,
+    errores: errores.length > 0 ? errores : undefined,
     timestamp: new Date().toISOString(),
     url: window.location.href,
   };
