@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monteflori Sync</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 280px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #1a202c;
+      color: #f0ede6;
+      padding: 16px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .logo {
+      width: 36px;
+      height: 36px;
+      background: #52796f;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+    .title { font-size: 15px; font-weight: 800; }
+    .subtitle { font-size: 11px; color: #a0aec0; }
+    .status {
+      background: #2d3748;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+      font-size: 12px;
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .status-row:last-child { margin-bottom: 0; }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
+    .dot.ok { background: #52796f; }
+    .dot.warn { background: #d4a017; }
+    .dot.error { background: #c0392b; }
+    .btn {
+      width: 100%;
+      padding: 10px;
+      border-radius: 10px;
+      border: none;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:active { opacity: 0.7; }
+    .btn-primary { background: #52796f; color: white; }
+    .btn-secondary { background: #2d3748; color: #f0ede6; border: 1px solid #4a5568; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #msg {
+      font-size: 11px;
+      color: #a0aec0;
+      text-align: center;
+      min-height: 16px;
+      margin-top: 4px;
+    }
+    #msg.ok { color: #84a98c; }
+    #msg.error { color: #e07a5f; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">🌿</div>
+    <div>
+      <div class="title">Monteflori Sync</div>
+      <div class="subtitle">Sincronizador universitario</div>
+    </div>
+  </div>
+
+  <div class="status" id="status-panel">
+    <div class="status-row">
+      <span><span class="dot warn" id="dot-portal"></span>Portal universitario</span>
+      <span id="txt-portal" style="color: #a0aec0;">Detectando...</span>
+    </div>
+    <div class="status-row">
+      <span><span class="dot warn" id="dot-app"></span>Dashboard Monteflori</span>
+      <span id="txt-app" style="color: #a0aec0;">—</span>
+    </div>
+  </div>
+
+  <button id="btn-sync" class="btn btn-primary" disabled>
+    🔄 Sincronizar ahora
+  </button>
+  <button id="btn-open" class="btn btn-secondary">
+    🌿 Abrir Monteflori
+  </button>
+
+  <div id="msg">Verificando conexión...</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
