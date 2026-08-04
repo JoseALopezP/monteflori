@@ -13,20 +13,28 @@ function getAdminApp(): App {
 
   const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 
-  // En build-time no hay variables de entorno del servidor disponibles.
-  // Retornar null para que los módulos que lo usan fallen solo en runtime.
   if (!serviceAccountKey) {
-    if (process.env.NODE_ENV === "production" || process.env.NEXT_PHASE === "phase-production-server") {
+    if (process.env.NODE_ENV === "production" && process.env.NEXT_PHASE !== "phase-production-build") {
       throw new Error(
         "FIREBASE_SERVICE_ACCOUNT_KEY no está configurada en las variables de entorno del servidor."
       );
     }
-    // Durante build estático, inicializar con config vacía (las rutas son dinámicas de todos modos)
+    // Durante build estático o en desarrollo sin key, inicializar con config placeholder
     return initializeApp({ projectId: "monteflori-build-placeholder" });
   }
 
-  const serviceAccount = JSON.parse(serviceAccountKey);
-  return initializeApp({ credential: cert(serviceAccount) });
+  try {
+    // Si viene con saltos de línea escapados literal (\\n), los normalizamos a \n en el string JSON
+    const normalizedKey = serviceAccountKey.trim();
+    const serviceAccount = JSON.parse(normalizedKey);
+    return initializeApp({ credential: cert(serviceAccount) });
+  } catch (error) {
+    if (process.env.NEXT_PHASE !== "phase-production-build") {
+      console.warn("[firebase-admin] Error al parsear FIREBASE_SERVICE_ACCOUNT_KEY:", error);
+    }
+    // En fase de build estático, usar placeholder para no romper la compilación
+    return initializeApp({ projectId: "monteflori-build-placeholder" });
+  }
 }
 
 const adminApp = getAdminApp();
