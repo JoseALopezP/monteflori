@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { Materia } from "@/types";
-import { calcularResultadoMateria } from "@/lib/calculo-notas";
+import { calcularResultadoMateria, resumenFormula } from "@/lib/calculo-notas";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -317,9 +317,7 @@ export default function MateriaCard({
                   Promociona: <strong style={{ color: "var(--foreground-muted)" }}>{materia.configuracion_nota.nota_promocionar}</strong>
                 </span>
                 <span>·</span>
-                <span style={{ textTransform: "capitalize" }}>
-                  Sistema {materia.configuracion_nota.sistema}
-                </span>
+                <span>{resumenFormula(materia.configuracion_nota)}</span>
               </div>
 
               {/* Ver detalle */}

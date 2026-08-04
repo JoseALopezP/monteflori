@@ -12,7 +12,8 @@ import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useCarreras } from "@/hooks/useCarreras";
 import { useMaterias } from "@/hooks/useMaterias";
 import { addMateria } from "@/lib/firestore";
-import { Materia, TipoEvaluacion } from "@/types";
+import { gruposPorDefecto } from "@/lib/calculo-notas";
+import { Materia } from "@/types";
 
 function NuevaMateriaContent() {
   const { user } = useAuthContext();
@@ -30,7 +31,6 @@ function NuevaMateriaContent() {
   const [correlativas, setCorrelativas] = useState<string[]>([]);
   const [notaAprobar, setNotaAprobar] = useState(4);
   const [notaPromocionar, setNotaPromocionar] = useState(7);
-  const [sistema, setSistema] = useState<"lineal" | "ponderado">("lineal");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,7 +64,8 @@ function NuevaMateriaContent() {
         carreras_vinculadas: carrerasSeleccionadas,
         correlativas_requisito: correlativas,
         configuracion_nota: {
-          sistema,
+          sistema: "grupos_ponderados",
+          grupos: gruposPorDefecto(),
           nota_aprobar: notaAprobar,
           nota_promocionar: notaPromocionar,
         },
@@ -151,7 +152,7 @@ function NuevaMateriaContent() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>
                       Período
@@ -188,31 +189,12 @@ function NuevaMateriaContent() {
 
             {/* Card: Configuración de nota */}
             <div className="rounded-2xl p-5 border" style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
-              <h2 className="font-bold text-base mb-4" style={{ color: "var(--foreground)" }}>Configuración de nota</h2>
+              <h2 className="font-bold text-base mb-1" style={{ color: "var(--foreground)" }}>Configuración de nota</h2>
+              <p className="text-sm mb-4" style={{ color: "var(--foreground-muted)" }}>
+                Arranca con parciales 50% + TP 20% + final 30%. Después, desde la materia
+                podés armar tu propia fórmula arrastrando y soltando.
+              </p>
               <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>
-                    Sistema de calificación
-                  </label>
-                  <div className="flex gap-3">
-                    {[
-                      { value: "lineal", label: "Promedio simple" },
-                      { value: "ponderado", label: "Ponderado" },
-                    ].map((s) => (
-                      <button key={s.value} type="button"
-                        onClick={() => setSistema(s.value as "lineal" | "ponderado")}
-                        className="flex-1 py-2 rounded-xl text-sm font-semibold border transition-all"
-                        style={{
-                          background: sistema === s.value ? "var(--color-primary)" : "var(--background-alt)",
-                          color: sistema === s.value ? "white" : "var(--foreground-muted)",
-                          borderColor: sistema === s.value ? "var(--color-primary)" : "var(--color-card-border)",
-                        }}>
-                        {s.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>

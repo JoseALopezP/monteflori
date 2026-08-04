@@ -5,7 +5,7 @@
 
 // ── Enums y tipos base ────────────────────────────────────
 
-export type SistemaCalificacion = "ponderado" | "lineal" | "custom_formula";
+export type SistemaCalificacion = "grupos_ponderados" | "ponderado" | "lineal" | "custom_formula";
 
 export type EstadoMateria =
   | "cursando"
@@ -20,14 +20,32 @@ export type TemaApp = "claro" | "oscuro" | "sistema";
 
 // ── Configuración de nota ──────────────────────────────────
 
+/** Cómo se combinan varias notas del mismo grupo (ej. dos parciales) en un solo valor */
+export type MetodoGrupo = "promedio" | "mejor_nota" | "ultima_nota";
+
+/**
+ * Un bloque del constructor visual de fórmula: agrupa uno o más tipos de
+ * evaluación (parcial, TP, etc.) bajo un peso porcentual sobre la nota final.
+ * Ej: { nombre: "Parciales", tipos: ["parcial", "recuperatorio"], peso: 50 }
+ */
+export interface GrupoNota {
+  id: string;
+  nombre: string;
+  peso: number;
+  tipos: TipoEvaluacion[];
+  metodo: MetodoGrupo;
+}
+
 export interface ConfiguracionNota {
   sistema: SistemaCalificacion;
+  /** Grupos ponderados del constructor visual (sistema "grupos_ponderados") */
+  grupos?: GrupoNota[];
   /** Fórmula matemática para sistema custom_formula. Variables: P1, P2, F, TP */
   formula_evaluacion?: string;
   nota_aprobar: number;
   nota_promocionar: number;
   requiere_asistencia?: boolean | number;
-  /** Si el sistema es ponderado, pesos por tipo de evaluación */
+  /** Sistema "ponderado" (legado) — pesos fijos parciales/TP */
   pesos?: {
     parciales?: number;
     trabajos_practicos?: number;
@@ -118,6 +136,8 @@ export interface Perfil {
   universidad?: string;
   /** Fecha en que el usuario comenzó sus estudios (ISO string) */
   fecha_inicio_estudios?: string;
+  /** Apodo de una sola palabra para el saludo (ej. "Flor" en vez de "María") */
+  alias?: string;
 }
 
 export interface ConfiguracionUsuario {

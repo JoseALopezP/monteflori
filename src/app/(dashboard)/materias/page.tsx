@@ -41,7 +41,7 @@ export default function MateriasPage() {
     if (!user?.uid) return;
     const materia = materias.find((m) => m.id === materiaId);
     if (!materia) return;
-    await updateEvaluacion(user.uid, materiaId, evalId, nota, materia.evaluaciones);
+    await updateEvaluacion(user.uid, materiaId, evalId, { nota }, materia.evaluaciones);
   }
 
   return (

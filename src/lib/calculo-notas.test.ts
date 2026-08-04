@@ -3,11 +3,15 @@ import {
   calcularPromedioSimple,
   calcularNotaPonderada,
   calcularFormulaCustom,
+  calcularNotaGrupos,
+  gruposPorDefecto,
+  resolverEvaluacionesEfectivas,
+  evaluacionRecuperadaPor,
   calcularResultadoMateria,
   calcularPromedioGeneral,
   calcularPorcentajeAvance,
 } from "./calculo-notas";
-import { Evaluacion, Materia } from "@/types";
+import { Evaluacion, Materia, GrupoNota } from "@/types";
 
 function evaluacion(overrides: Partial<Evaluacion> = {}): Evaluacion {
   return {
@@ -116,6 +120,111 @@ describe("calcularFormulaCustom", () => {
   });
 });
 
+describe("resolverEvaluacionesEfectivas", () => {
+  it("excluye la evaluación original cuando su recuperatorio ya tiene nota", () => {
+    const original = evaluacion({ id: "p1", tipo: "parcial", nota: 3 });
+    const recu = evaluacion({ id: "r1", tipo: "recuperatorio", nota: 8, recuperatorio_de: "p1" });
+    const efectivas = resolverEvaluacionesEfectivas([original, recu]);
+    expect(efectivas.map((e) => e.id)).toEqual(["r1"]);
+  });
+
+  it("mantiene la original si el recuperatorio todavía no tiene nota cargada", () => {
+    const original = evaluacion({ id: "p1", tipo: "parcial", nota: 3 });
+    const recu = evaluacion({ id: "r1", tipo: "recuperatorio", nota: null, recuperatorio_de: "p1" });
+    const efectivas = resolverEvaluacionesEfectivas([original, recu]);
+    expect(efectivas.map((e) => e.id).sort()).toEqual(["p1", "r1"]);
+  });
+
+  it("no afecta evaluaciones sin recuperatorio asociado", () => {
+    const evals = [evaluacion({ id: "p1", nota: 6 }), evaluacion({ id: "tp1", tipo: "tp", nota: 8 })];
+    expect(resolverEvaluacionesEfectivas(evals)).toHaveLength(2);
+  });
+});
+
+describe("evaluacionRecuperadaPor", () => {
+  it("devuelve el recuperatorio que reemplaza a una evaluación", () => {
+    const recu = evaluacion({ id: "r1", tipo: "recuperatorio", nota: 8, recuperatorio_de: "p1" });
+    expect(evaluacionRecuperadaPor("p1", [recu])?.id).toBe("r1");
+  });
+
+  it("da null si el recuperatorio todavía no tiene nota", () => {
+    const recu = evaluacion({ id: "r1", tipo: "recuperatorio", nota: null, recuperatorio_de: "p1" });
+    expect(evaluacionRecuperadaPor("p1", [recu])).toBeNull();
+  });
+
+  it("da null si no hay ningún recuperatorio asociado", () => {
+    expect(evaluacionRecuperadaPor("p1", [evaluacion({ id: "tp1" })])).toBeNull();
+  });
+});
+
+describe("calcularNotaGrupos", () => {
+  function grupo(overrides: Partial<GrupoNota> = {}): GrupoNota {
+    return {
+      id: overrides.id ?? `grupo_${Math.random()}`,
+      nombre: "Grupo",
+      peso: 50,
+      tipos: ["parcial"],
+      metodo: "promedio",
+      ...overrides,
+    };
+  }
+
+  it("da 0 si ningún grupo tiene notas cargadas", () => {
+    expect(calcularNotaGrupos([], gruposPorDefecto())).toBe(0);
+  });
+
+  it("pondera grupos según su peso cuando todos tienen datos", () => {
+    const grupos = [
+      grupo({ nombre: "Parciales", peso: 60, tipos: ["parcial"], metodo: "promedio" }),
+      grupo({ nombre: "TP", peso: 40, tipos: ["tp"], metodo: "promedio" }),
+    ];
+    const evals = [
+      evaluacion({ tipo: "parcial", nota: 10 }),
+      evaluacion({ tipo: "tp", nota: 5 }),
+    ];
+    // 10 * 0.6 + 5 * 0.4 = 8
+    expect(calcularNotaGrupos(evals, grupos)).toBe(8);
+  });
+
+  it("renormaliza el peso cuando un grupo todavía no tiene notas (ej. Final sin rendir)", () => {
+    const grupos = [
+      grupo({ nombre: "Parciales", peso: 70, tipos: ["parcial"], metodo: "promedio" }),
+      grupo({ nombre: "Final", peso: 30, tipos: ["final"], metodo: "ultima_nota" }),
+    ];
+    const evals = [evaluacion({ tipo: "parcial", nota: 8 })];
+    // Solo hay datos de "Parciales" -> se queda con ese valor entero, no 8*0.7
+    expect(calcularNotaGrupos(evals, grupos)).toBe(8);
+  });
+
+  it("usa la mejor nota del grupo cuando el método es mejor_nota", () => {
+    const grupos = [grupo({ metodo: "mejor_nota", peso: 100 })];
+    const evals = [
+      evaluacion({ tipo: "parcial", nota: 4 }),
+      evaluacion({ tipo: "parcial", nota: 9 }),
+      evaluacion({ tipo: "parcial", nota: 6 }),
+    ];
+    expect(calcularNotaGrupos(evals, grupos)).toBe(9);
+  });
+
+  it("usa la última nota cargada del grupo cuando el método es ultima_nota", () => {
+    const grupos = [grupo({ metodo: "ultima_nota", peso: 100 })];
+    const evals = [
+      evaluacion({ id: "1", tipo: "parcial", nota: 4 }),
+      evaluacion({ id: "2", tipo: "parcial", nota: 9 }),
+    ];
+    expect(calcularNotaGrupos(evals, grupos)).toBe(9);
+  });
+
+  it("ignora tipos de evaluación que no pertenecen a ningún grupo", () => {
+    const grupos = [grupo({ tipos: ["parcial"], peso: 100 })];
+    const evals = [
+      evaluacion({ tipo: "parcial", nota: 7 }),
+      evaluacion({ tipo: "coloquio", nota: 2 }),
+    ];
+    expect(calcularNotaGrupos(evals, grupos)).toBe(7);
+  });
+});
+
 describe("calcularResultadoMateria", () => {
   it("calcula el sistema lineal correctamente", () => {
     const m = materia({
@@ -166,6 +275,51 @@ describe("calcularResultadoMateria", () => {
     const m = materia({ evaluaciones: [] });
     const r = calcularResultadoMateria(m);
     expect(r.porcentaje_completado).toBe(0);
+  });
+
+  it("calcula el sistema grupos_ponderados usando los grupos configurados", () => {
+    const m = materia({
+      configuracion_nota: {
+        sistema: "grupos_ponderados",
+        nota_aprobar: 4,
+        nota_promocionar: 7,
+        grupos: gruposPorDefecto(),
+      },
+      evaluaciones: [
+        evaluacion({ tipo: "parcial", nota: 8 }),
+        evaluacion({ tipo: "tp", nota: 6 }),
+      ],
+    });
+    const r = calcularResultadoMateria(m);
+    // Solo hay datos de Parciales (50%) y TP (20%) -> renormalizado: 8*(50/70) + 6*(20/70) = 7.43
+    expect(r.promedio_actual).toBeCloseTo(7.43, 1);
+  });
+
+  it("un recuperatorio reemplaza a la evaluación que recupera en el cálculo final", () => {
+    const m = materia({
+      configuracion_nota: {
+        sistema: "grupos_ponderados",
+        nota_aprobar: 4,
+        nota_promocionar: 7,
+        grupos: gruposPorDefecto(),
+      },
+      evaluaciones: [
+        evaluacion({ id: "p1", tipo: "parcial", nota: 2 }),
+        evaluacion({ id: "r1", tipo: "recuperatorio", nota: 9, recuperatorio_de: "p1" }),
+      ],
+    });
+    const r = calcularResultadoMateria(m);
+    // Si promediara ambos dentro del grupo Parciales sería (2+9)/2=5.5; como
+    // el recuperatorio reemplaza al parcial original, el grupo queda en 9.
+    expect(r.promedio_actual).toBe(9);
+  });
+
+  it("grupos_ponderados sin grupos configurados cae a promedio simple", () => {
+    const m = materia({
+      configuracion_nota: { sistema: "grupos_ponderados", nota_aprobar: 4, nota_promocionar: 7 },
+      evaluaciones: [evaluacion({ nota: 8 }), evaluacion({ nota: 6 })],
+    });
+    expect(calcularResultadoMateria(m).promedio_actual).toBe(7);
   });
 });
 

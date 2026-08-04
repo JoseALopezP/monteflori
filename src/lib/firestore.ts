@@ -65,29 +65,39 @@ export async function crearPerfilUsuario(
 export async function getPerfilUsuario(uid: string): Promise<Usuario | null> {
   const snap = await getDoc(paths.usuario(uid));
   if (!snap.exists()) return null;
-  return { uid, ...snap.data() } as Usuario;
+  const data = snap.data() as Partial<Usuario>;
+  // updatePerfil/updateConfiguracion usan setDoc+merge para poder crear el
+  // documento si no existía (ver comentario ahí) — eso puede dejar un doc
+  // con solo "perfil" o solo "configuracion". Normalizamos acá para que el
+  // resto de la app pueda asumir siempre que ambos existen.
+  return {
+    uid,
+    ...data,
+    perfil: { nombre: "", email: "", fecha_creacion: "", ...data.perfil },
+    configuracion: {
+      tema: "sistema",
+      notificaciones_whatsapp: true,
+      notificaciones_email: true,
+      ...data.configuracion,
+    },
+  } as Usuario;
 }
 
 export async function updateConfiguracion(
   uid: string,
   datos: Partial<Usuario["configuracion"]>
 ): Promise<void> {
-  const updates: Record<string, unknown> = {};
-  Object.entries(datos).forEach(([k, v]) => {
-    updates[`configuracion.${k}`] = v;
-  });
-  await updateDoc(paths.usuario(uid), updates);
+  // setDoc + merge en vez de updateDoc: si el documento del usuario todavía
+  // no existe (ej. primer login con Google desde /login, que no pasa por
+  // crearPerfilUsuario), esto lo crea en vez de tirar "No document to update".
+  await setDoc(paths.usuario(uid), { configuracion: datos }, { merge: true });
 }
 
 export async function updatePerfil(
   uid: string,
   datos: Partial<Usuario["perfil"]>
 ): Promise<void> {
-  const updates: Record<string, unknown> = {};
-  Object.entries(datos).forEach(([k, v]) => {
-    updates[`perfil.${k}`] = v;
-  });
-  await updateDoc(paths.usuario(uid), updates);
+  await setDoc(paths.usuario(uid), { perfil: datos }, { merge: true });
 }
 
 
@@ -170,11 +180,11 @@ export async function updateEvaluacion(
   uid: string,
   mid: string,
   evaluacionId: string,
-  nota: number | null,
+  cambios: Partial<Omit<Evaluacion, "id">>,
   evaluacionesActuales: Evaluacion[]
 ): Promise<void> {
   const actualizadas = evaluacionesActuales.map((e) =>
-    e.id === evaluacionId ? { ...e, nota } : e
+    e.id === evaluacionId ? { ...e, ...cambios } : e
   );
   await updateDoc(paths.materia(uid, mid), {
     evaluaciones: actualizadas,

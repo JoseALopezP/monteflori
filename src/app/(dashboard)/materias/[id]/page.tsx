@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   BookOpen, Calendar, Plus, Trash2, Edit2, Clock, CheckCircle,
-  AlertCircle, Star, Lock, Award, ChevronLeft, CalendarPlus, Loader2
+  AlertCircle, Star, Lock, Award, ChevronLeft, CalendarPlus, Loader2, Settings2
 } from "lucide-react";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useAuthContext } from "@/components/auth/AuthProvider";
@@ -23,8 +23,10 @@ import {
   deleteFechaImportante,
   deleteMateria,
 } from "@/lib/firestore";
-import { calcularResultadoMateria } from "@/lib/calculo-notas";
-import { Materia, Evaluacion, FechaImportante, TipoEvaluacion } from "@/types";
+import { calcularResultadoMateria, evaluacionRecuperadaPor, resumenFormula } from "@/lib/calculo-notas";
+import { AgregarNotaModal } from "@/components/notas/AgregarNotaModal";
+import { ConstructorNota } from "@/components/notas/ConstructorNota";
+import { Materia, Evaluacion, FechaImportante, ConfiguracionNota } from "@/types";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -42,13 +44,9 @@ function MateriaDetalleContent({ params }: PageParams) {
 
   const materia = materias.find((m) => m.id === id);
 
-  // Estados para formularios de nueva evaluación / nueva fecha
-  const [showFormEval, setShowFormEval] = useState(false);
-  const [nombreEval, setNombreEval] = useState("");
-  const [tipoEval, setTipoEval] = useState<TipoEvaluacion>("parcial");
-  const [ponderacion, setPonderacion] = useState<number | "">("");
-  const [notaEval, setNotaEval] = useState<number | "">("");
-  const [guardandoEval, setGuardandoEval] = useState(false);
+  const [mostrarConstructor, setMostrarConstructor] = useState(false);
+  const [mostrarAgregarNota, setMostrarAgregarNota] = useState(false);
+  const [editandoVinculoId, setEditandoVinculoId] = useState<string | null>(null);
 
   const [showFormFecha, setShowFormFecha] = useState(false);
   const [nombreFecha, setNombreFecha] = useState("");
@@ -86,30 +84,29 @@ function MateriaDetalleContent({ params }: PageParams) {
   const resultado = calcularResultadoMateria(materia);
 
   // Handlers para evaluaciones
-  async function handleCrearEvaluacion(e: React.FormEvent) {
-    e.preventDefault();
-    if (!nombreEval.trim() || !user?.uid || !materia) return;
-    setGuardandoEval(true);
-    try {
-      await addEvaluacion(user.uid, materia.id, {
-        nombre: nombreEval.trim(),
-        tipo: tipoEval,
-        ponderacion: ponderacion !== "" ? Number(ponderacion) : undefined,
-        nota: notaEval !== "" ? Number(notaEval) : undefined,
-      }, materia.evaluaciones);
-      setNombreEval("");
-      setPonderacion("");
-      setNotaEval("");
-      setShowFormEval(false);
-    } finally {
-      setGuardandoEval(false);
-    }
+  async function handleGuardarNota(materiaId: string, datos: Omit<Evaluacion, "id">) {
+    if (!user?.uid) return;
+    const m = materias.find((mm) => mm.id === materiaId);
+    if (!m) return;
+    await addEvaluacion(user.uid, materiaId, datos, m.evaluaciones);
+  }
+
+  async function handleCambiarVinculo(evalId: string, recuperaDeId: string) {
+    if (!user?.uid || !materia) return;
+    await updateEvaluacion(
+      user.uid,
+      materia.id,
+      evalId,
+      { recuperatorio_de: recuperaDeId || undefined },
+      materia.evaluaciones
+    );
+    setEditandoVinculoId(null);
   }
 
   async function handleGuardarNotaInline(evalId: string) {
     if (!user?.uid || !materia) return;
     const nota = valNotaEdit === "" ? null : parseFloat(valNotaEdit);
-    await updateEvaluacion(user.uid, materia.id, evalId, nota, materia.evaluaciones);
+    await updateEvaluacion(user.uid, materia.id, evalId, { nota }, materia.evaluaciones);
     setEditandoEvalId(null);
   }
 
@@ -176,6 +173,11 @@ function MateriaDetalleContent({ params }: PageParams) {
   async function handleCambiarEstado(nuevoEstado: Materia["estado"]) {
     if (!user?.uid || !materia) return;
     await updateMateria(user.uid, materia.id, { estado: nuevoEstado });
+  }
+
+  async function handleGuardarFormula(nuevaConfig: ConfiguracionNota) {
+    if (!user?.uid || !materia) return;
+    await updateMateria(user.uid, materia.id, { configuracion_nota: nuevaConfig });
   }
 
   async function handleEliminarMateria() {
@@ -269,9 +271,17 @@ function MateriaDetalleContent({ params }: PageParams) {
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold" style={{ color: "var(--foreground-muted)" }}>Regla Aprobación</p>
-              <p className="text-sm font-bold mt-1" style={{ color: "var(--foreground)" }}>
-                Min: {materia.configuracion_nota.nota_aprobar} | Prom: {materia.configuracion_nota.nota_promocionar}
+              <p className="text-xs font-semibold" style={{ color: "var(--foreground-muted)" }}>Cómo se calcula</p>
+              <button
+                onClick={() => setMostrarConstructor(true)}
+                className="text-sm font-bold mt-1 flex items-center gap-1.5 hover:opacity-75 transition-opacity"
+                style={{ color: "var(--color-primary)" }}
+              >
+                <Settings2 size={13} />
+                {resumenFormula(materia.configuracion_nota)}
+              </button>
+              <p className="text-xs mt-1" style={{ color: "var(--foreground-subtle)" }}>
+                Aprobar: {materia.configuracion_nota.nota_aprobar} · Promocionar: {materia.configuracion_nota.nota_promocionar}
               </p>
             </div>
             <div className="col-span-2 sm:col-span-1">
@@ -296,74 +306,12 @@ function MateriaDetalleContent({ params }: PageParams) {
               Evaluaciones y Calificaciones
             </h2>
             <button
-              onClick={() => setShowFormEval(!showFormEval)}
+              onClick={() => setMostrarAgregarNota(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
               style={{ background: "var(--color-primary)", color: "white" }}>
               <Plus size={14} /> Nueva evaluación
             </button>
           </div>
-
-          {/* Formulario de nueva evaluación */}
-          {showFormEval && (
-            <form onSubmit={handleCrearEvaluacion} className="p-4 rounded-xl border mb-4 space-y-3 animate-fade-in"
-              style={{ background: "var(--background-alt)", borderColor: "var(--color-card-border)" }}>
-              <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--foreground-muted)" }}>
-                Agregar evaluación
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <input
-                  type="text"
-                  placeholder="Nombre (ej: Parcial 1)"
-                  value={nombreEval}
-                  onChange={(e) => setNombreEval(e.target.value)}
-                  required
-                  style={inputStyle}
-                />
-                <select
-                  value={tipoEval}
-                  onChange={(e) => setTipoEval(e.target.value as TipoEvaluacion)}
-                  style={inputStyle}
-                >
-                  <option value="parcial">Parcial</option>
-                  <option value="recuperatorio">Recuperatorio</option>
-                  <option value="tp">Trabajo Práctico</option>
-                  <option value="final">Final</option>
-                  <option value="coloquio">Coloquio</option>
-                </select>
-                <input
-                  type="number"
-                  placeholder="Nota (opcional)"
-                  min={0}
-                  max={10}
-                  step={0.5}
-                  value={notaEval}
-                  onChange={(e) => setNotaEval(e.target.value ? Number(e.target.value) : "")}
-                  style={inputStyle}
-                />
-                <input
-                  type="number"
-                  placeholder="Ponderación % (opcional)"
-                  min={0}
-                  max={100}
-                  value={ponderacion}
-                  onChange={(e) => setPonderacion(e.target.value ? Number(e.target.value) : "")}
-                  style={inputStyle}
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-1">
-                <button type="button" onClick={() => setShowFormEval(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold border"
-                  style={{ borderColor: "var(--color-card-border)", color: "var(--foreground-muted)" }}>
-                  Cancelar
-                </button>
-                <button type="submit" disabled={guardandoEval}
-                  className="px-4 py-1.5 rounded-lg text-xs font-bold"
-                  style={{ background: "var(--color-primary)", color: "white" }}>
-                  {guardandoEval ? "Guardando..." : "Guardar"}
-                </button>
-              </div>
-            </form>
-          )}
 
           {/* Lista de Evaluaciones */}
           {materia.evaluaciones.length === 0 ? (
@@ -372,65 +320,110 @@ function MateriaDetalleContent({ params }: PageParams) {
             </p>
           ) : (
             <div className="space-y-2">
-              {materia.evaluaciones.map((ev) => (
-                <div key={ev.id} className="flex items-center justify-between p-3 rounded-xl border transition-all"
-                  style={{ background: "var(--background-alt)", borderColor: "var(--color-card-border)" }}>
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-xs font-bold uppercase px-2 py-0.5 rounded"
-                      style={{ background: "var(--color-card-border)", color: "var(--foreground-muted)", fontSize: "10px" }}>
-                      {ev.tipo}
-                    </span>
-                    <span className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
-                      {ev.nombre}
-                    </span>
-                  </div>
+              {materia.evaluaciones.map((ev) => {
+                const recuperadaPor = evaluacionRecuperadaPor(ev.id, materia.evaluaciones);
+                const otrasEvaluaciones = materia.evaluaciones.filter((e) => e.id !== ev.id && e.tipo !== "recuperatorio");
 
-                  <div className="flex items-center gap-3">
-                    {/* Inline edit nota */}
-                    {editandoEvalId === ev.id ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          min={0}
-                          max={10}
-                          step={0.5}
-                          value={valNotaEdit}
-                          onChange={(e) => setValNotaEdit(e.target.value)}
-                          className="w-14 text-center text-xs font-bold rounded-lg p-1 border"
-                          style={{ background: "var(--color-card)", borderColor: "var(--color-primary)", color: "var(--foreground)" }}
-                          autoFocus
-                        />
-                        <button onClick={() => handleGuardarNotaInline(ev.id)} className="text-xs font-bold px-2 py-1 rounded bg-emerald-600 text-white">
-                          ✓
-                        </button>
-                        <button onClick={() => setEditandoEvalId(null)} className="text-xs px-2 py-1 rounded bg-slate-300">
-                          ✕
+                return (
+                  <div key={ev.id} className="p-3 rounded-xl border transition-all"
+                    style={{ background: "var(--background-alt)", borderColor: "var(--color-card-border)" }}>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+                        <span className="text-xs font-bold uppercase px-2 py-0.5 rounded flex-shrink-0"
+                          style={{ background: "var(--color-card-border)", color: "var(--foreground-muted)", fontSize: "10px" }}>
+                          {ev.tipo}
+                        </span>
+                        <span className="text-sm font-semibold truncate" style={{ color: "var(--foreground)" }}>
+                          {ev.nombre}
+                        </span>
+                        {recuperadaPor && (
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+                            style={{ background: "var(--estado-cursando-bg)", color: "var(--estado-cursando)" }}>
+                            Recuperada por: {recuperadaPor.nombre}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {/* Inline edit nota */}
+                        {editandoEvalId === ev.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              min={0}
+                              max={10}
+                              step={0.5}
+                              value={valNotaEdit}
+                              onChange={(e) => setValNotaEdit(e.target.value)}
+                              className="w-14 text-center text-xs font-bold rounded-lg p-1 border"
+                              style={{ background: "var(--color-card)", borderColor: "var(--color-primary)", color: "var(--foreground)" }}
+                              autoFocus
+                            />
+                            <button onClick={() => handleGuardarNotaInline(ev.id)} className="text-xs font-bold px-2 py-1 rounded bg-emerald-600 text-white">
+                              ✓
+                            </button>
+                            <button onClick={() => setEditandoEvalId(null)} className="text-xs px-2 py-1 rounded bg-slate-300">
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setEditandoEvalId(ev.id);
+                              setValNotaEdit(ev.nota !== undefined && ev.nota !== null ? String(ev.nota) : "");
+                            }}
+                            className="text-sm font-extrabold px-3 py-1 rounded-lg border transition-all hover:opacity-80"
+                            style={{
+                              background: "var(--color-card)",
+                              borderColor: "var(--color-card-border)",
+                              color: ev.nota !== undefined && ev.nota !== null ? "var(--color-primary)" : "var(--foreground-subtle)",
+                              textDecoration: recuperadaPor ? "line-through" : "none",
+                            }}>
+                            {ev.nota !== undefined && ev.nota !== null ? ev.nota : "Añadir nota"}
+                          </button>
+                        )}
+
+                        {ev.tipo === "recuperatorio" && (
+                          <button
+                            onClick={() => setEditandoVinculoId(editandoVinculoId === ev.id ? null : ev.id)}
+                            className="p-1 rounded opacity-60 hover:opacity-100 transition-opacity"
+                            style={{ color: "var(--color-secondary)" }}
+                            title="Elegir qué evaluación recupera">
+                            <Edit2 size={14} />
+                          </button>
+                        )}
+
+                        <button onClick={() => handleEliminarEvaluacion(ev.id)}
+                          className="p-1 rounded opacity-60 hover:opacity-100 transition-opacity"
+                          style={{ color: "var(--color-alert)" }}>
+                          <Trash2 size={14} />
                         </button>
                       </div>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setEditandoEvalId(ev.id);
-                          setValNotaEdit(ev.nota !== undefined && ev.nota !== null ? String(ev.nota) : "");
-                        }}
-                        className="text-sm font-extrabold px-3 py-1 rounded-lg border transition-all hover:opacity-80"
-                        style={{
-                          background: "var(--color-card)",
-                          borderColor: "var(--color-card-border)",
-                          color: ev.nota !== undefined && ev.nota !== null ? "var(--color-primary)" : "var(--foreground-subtle)",
-                        }}>
-                        {ev.nota !== undefined && ev.nota !== null ? ev.nota : "Añadir nota"}
-                      </button>
-                    )}
+                    </div>
 
-                    <button onClick={() => handleEliminarEvaluacion(ev.id)}
-                      className="p-1 rounded opacity-60 hover:opacity-100 transition-opacity"
-                      style={{ color: "var(--color-alert)" }}>
-                      <Trash2 size={14} />
-                    </button>
+                    {/* Vínculo: qué evaluación recupera este recuperatorio */}
+                    {ev.tipo === "recuperatorio" && editandoVinculoId === ev.id && (
+                      <div className="mt-2.5 pt-2.5 border-t" style={{ borderColor: "var(--color-card-border)" }}>
+                        <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>
+                          ¿Qué evaluación recupera?
+                        </label>
+                        <select
+                          value={ev.recuperatorio_de ?? ""}
+                          onChange={(e) => handleCambiarVinculo(ev.id, e.target.value)}
+                          style={inputStyle}
+                        >
+                          <option value="">No recupera ninguna en particular</option>
+                          {otrasEvaluaciones.map((e) => (
+                            <option key={e.id} value={e.id}>
+                              {e.nombre} {e.nota !== null && e.nota !== undefined ? `(nota: ${e.nota})` : "(sin nota)"}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -551,6 +544,24 @@ function MateriaDetalleContent({ params }: PageParams) {
         </div>
 
       </div>
+
+      {mostrarConstructor && (
+        <ConstructorNota
+          config={materia.configuracion_nota}
+          evaluaciones={materia.evaluaciones}
+          onGuardar={handleGuardarFormula}
+          onCerrar={() => setMostrarConstructor(false)}
+        />
+      )}
+
+      {mostrarAgregarNota && (
+        <AgregarNotaModal
+          materias={[materia]}
+          materiaIdInicial={materia.id}
+          onGuardar={handleGuardarNota}
+          onCerrar={() => setMostrarAgregarNota(false)}
+        />
+      )}
     </div>
   );
 }

@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useAuthContext } from "@/components/auth/AuthProvider";
-import { useTheme } from "@/hooks/useTheme";
+import { useTheme } from "@/components/theme/ThemeProvider";
 import { getPerfilUsuario, updateConfiguracion } from "@/lib/firestore";
 import { Usuario } from "@/types";
 

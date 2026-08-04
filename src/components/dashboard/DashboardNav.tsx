@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useAuthContext } from "@/components/auth/AuthProvider";
-import { useTheme } from "@/hooks/useTheme";
+import { useTheme } from "@/components/theme/ThemeProvider";
 import { useCarreraActivaContext } from "./CarreraActivaProvider";
 import { CarreraToggle } from "./CarreraToggle";
 
@@ -26,7 +26,7 @@ const LINKS = [
 
 export function DashboardNav() {
   const { user } = useAuthContext();
-  const { toggleTema, temaActual } = useTheme();
+  const { toggleTema, temaResuelto } = useTheme();
   const { carreras, carreraActivaId, setCarreraActivaId } = useCarreraActivaContext();
   const router = useRouter();
   const pathname = usePathname();
@@ -82,10 +82,10 @@ export function DashboardNav() {
             onClick={toggleTema}
             className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:opacity-75"
             style={{ background: "var(--background-alt)" }}
-            title={temaActual === "oscuro" ? "Modo claro" : "Modo oscuro"}
+            title={temaResuelto === "oscuro" ? "Modo claro" : "Modo oscuro"}
             aria-label="Cambiar tema"
           >
-            {temaActual === "oscuro"
+            {temaResuelto === "oscuro"
               ? <Sun size={16} style={{ color: "var(--color-accent)" }} />
               : <Moon size={16} style={{ color: "var(--foreground-muted)" }} />}
           </button>
@@ -143,6 +143,19 @@ export function DashboardNav() {
       {/* Nav — mobile */}
       {menuAbierto && (
         <div className="md:hidden border-t px-4 py-2 flex flex-col gap-1" style={{ borderColor: "var(--color-card-border)" }}>
+          <div className="flex items-center gap-3 px-3 py-2.5 mb-1 border-b" style={{ borderColor: "var(--color-card-border)" }}>
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm flex-shrink-0 overflow-hidden"
+              style={{ background: "var(--color-primary)", color: "white" }}>
+              {user?.photoURL
+                ? <img src={user.photoURL} alt="Avatar" className="w-full h-full object-cover" />
+                : user?.displayName?.[0]?.toUpperCase() ?? "U"}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate" style={{ color: "var(--foreground)" }}>{user?.displayName ?? "Estudiante"}</p>
+              <p className="text-xs truncate" style={{ color: "var(--foreground-subtle)" }}>{user?.email}</p>
+            </div>
+          </div>
+
           {LINKS.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
@@ -163,6 +176,18 @@ export function DashboardNav() {
           <Link href="/configuracion" onClick={() => setMenuAbierto(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium" style={{ color: "var(--foreground)" }}>
             <Settings size={15} /> Configuración
           </Link>
+          <button
+            onClick={async () => {
+              const { auth } = await import("@/lib/firebase");
+              const { signOut } = await import("firebase/auth");
+              await signOut(auth);
+              router.push("/login");
+            }}
+            className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium text-left"
+            style={{ color: "var(--color-alert)" }}
+          >
+            <LogOut size={15} /> Cerrar sesión
+          </button>
         </div>
       )}
     </header>

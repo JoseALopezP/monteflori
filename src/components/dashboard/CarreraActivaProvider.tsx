@@ -63,7 +63,7 @@ export function CarreraActivaProvider({ children }: { children: ReactNode }) {
       setCarreras(carrerasData);
       // La carrera principal guardada puede apuntar a una carrera ya borrada —
       // en ese caso caemos a vista global en vez de mostrar algo inexistente.
-      const guardada = perfil?.configuracion.carrera_activa ?? null;
+      const guardada = perfil?.configuracion?.carrera_activa ?? null;
       const sigueExistiendo = guardada && carrerasData.some((c) => c.id === guardada);
       setCarreraActivaIdState(sigueExistiendo ? guardada : null);
       setLoading(false);

@@ -3,34 +3,40 @@
 // src/app/(dashboard)/page.tsx
 // Dashboard principal de Monteflori
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   BookOpen, GraduationCap, Award, Calendar,
-  Plus, ChevronRight, Layers,
+  Plus, ChevronRight, Layers, ClipboardPlus,
 } from "lucide-react";
 
 import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useMaterias } from "@/hooks/useMaterias";
+import { usePerfil } from "@/hooks/usePerfil";
 import { useCarreraActivaContext } from "@/components/dashboard/CarreraActivaProvider";
 import { StatsCard } from "@/components/dashboard/StatsCard";
 import { ProgresoCarrera } from "@/components/dashboard/ProgresoCarrera";
 import { ProximasFechas } from "@/components/dashboard/ProximasFechas";
 import MotivacionalBanner from "@/components/ui/MotivacionalBanner";
 import MateriaCard from "@/components/ui/MateriaCard";
-import { updateEvaluacion } from "@/lib/firestore";
+import { AgregarNotaModal } from "@/components/notas/AgregarNotaModal";
+import { addEvaluacion, updateEvaluacion } from "@/lib/firestore";
 import {
   calcularPromedioGeneral,
   calcularPorcentajeAvance,
 } from "@/lib/calculo-notas";
+import { Evaluacion } from "@/types";
 
 export default function HomePage() {
   const { user, loading: authLoading } = useAuthContext();
   const router = useRouter();
 
   const { materias, loading: matLoading } = useMaterias(user?.uid ?? null);
+  const { perfil, loading: perfilLoading } = usePerfil(user?.uid ?? null);
   const { carreras, carreraActivaId, carreraActiva, loading: carLoading } = useCarreraActivaContext();
+
+  const nombreSaludo = perfil?.perfil.alias || user?.displayName?.split(" ")[0] || "Estudiante";
 
   const materiasFiltradas = carreraActivaId
     ? materias.filter((m) => m.carreras_vinculadas?.includes(carreraActivaId))
@@ -55,12 +61,21 @@ export default function HomePage() {
       if (!user?.uid) return;
       const materia = materias.find((m) => m.id === materiaId);
       if (!materia) return;
-      await updateEvaluacion(user.uid, materiaId, evalId, nota, materia.evaluaciones);
+      await updateEvaluacion(user.uid, materiaId, evalId, { nota }, materia.evaluaciones);
     },
     [user, materias]
   );
 
-  const loading = authLoading || matLoading || carLoading;
+  const [mostrarAgregarNota, setMostrarAgregarNota] = useState(false);
+
+  async function handleGuardarNota(materiaId: string, datos: Omit<Evaluacion, "id">) {
+    if (!user?.uid) return;
+    const m = materias.find((mm) => mm.id === materiaId);
+    if (!m) return;
+    await addEvaluacion(user.uid, materiaId, datos, m.evaluaciones);
+  }
+
+  const loading = authLoading || matLoading || carLoading || perfilLoading;
 
   if (loading) {
     return (
@@ -84,7 +99,7 @@ export default function HomePage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold" style={{ color: "var(--foreground)" }}>
-              Hola, {user?.displayName?.split(" ")[0] ?? "Estudiante"}
+              Hola, {nombreSaludo}
             </h1>
             <p className="text-sm mt-0.5" style={{ color: "var(--foreground-muted)" }}>
               {carreraActiva
@@ -95,15 +110,27 @@ export default function HomePage() {
             </p>
           </div>
 
-          <Link
-            id="btn-nueva-materia"
-            href="/materias/nueva"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm transition-all hover:opacity-85 active:scale-95"
-            style={{ background: "var(--color-primary)", color: "white" }}
-          >
-            <Plus size={15} />
-            <span className="hidden sm:inline">Nueva materia</span>
-          </Link>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              id="btn-cargar-nota"
+              onClick={() => setMostrarAgregarNota(true)}
+              disabled={materias.length === 0}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm border transition-all hover:opacity-80 active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+              style={{ borderColor: "var(--color-card-border)", color: "var(--foreground)", background: "var(--color-card)" }}
+            >
+              <ClipboardPlus size={15} />
+              <span className="hidden sm:inline">Cargar nota</span>
+            </button>
+            <Link
+              id="btn-nueva-materia"
+              href="/materias/nueva"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm transition-all hover:opacity-85 active:scale-95"
+              style={{ background: "var(--color-primary)", color: "white" }}
+            >
+              <Plus size={15} />
+              <span className="hidden sm:inline">Nueva materia</span>
+            </Link>
+          </div>
         </div>
 
         {/* Banner motivacional */}
@@ -247,6 +274,14 @@ export default function HomePage() {
           </section>
         )}
       </main>
+
+      {mostrarAgregarNota && (
+        <AgregarNotaModal
+          materias={materiasFiltradas}
+          onGuardar={handleGuardarNota}
+          onCerrar={() => setMostrarAgregarNota(false)}
+        />
+      )}
     </div>
   );
 }

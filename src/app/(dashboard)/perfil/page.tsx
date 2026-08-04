@@ -8,18 +8,19 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { updateProfile, sendPasswordResetEmail, signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { getPerfilUsuario, updatePerfil } from "@/lib/firestore";
+import { updatePerfil } from "@/lib/firestore";
 import { uploadAvatar } from "@/lib/storage";
 import { useAuthContext } from "@/components/auth/AuthProvider";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useMaterias } from "@/hooks/useMaterias";
+import { usePerfil } from "@/hooks/usePerfil";
 import { calcularPromedioGeneral, calcularPorcentajeAvance } from "@/lib/calculo-notas";
 import { useCarreras } from "@/hooks/useCarreras";
 import { Usuario } from "@/types";
 import {
   User, Mail, GraduationCap, Calendar, Edit3, Check, X,
   Camera, Loader2, ArrowLeft, KeyRound, LogOut,
-  BookOpen, Award, TrendingUp, Clock, ChevronRight
+  BookOpen, Award, TrendingUp, Clock, ChevronRight, Sparkles
 } from "lucide-react";
 
 // ── Componente de campo editable ────────────────────────────────────────────
@@ -33,10 +34,13 @@ interface CampoEditableProps {
   onSave: (value: string) => Promise<void>;
   icon?: React.ReactNode;
   readOnly?: boolean;
+  /** Fuerza una sola palabra: no deja escribir espacios */
+  singleWord?: boolean;
+  helperText?: string;
 }
 
 function CampoEditable({
-  label, valor, placeholder, multiline, maxLength, onSave, icon, readOnly
+  label, valor, placeholder, multiline, maxLength, onSave, icon, readOnly, singleWord, helperText
 }: CampoEditableProps) {
   const [editando, setEditando] = useState(false);
   const [draft, setDraft] = useState(valor);
@@ -117,12 +121,19 @@ function CampoEditable({
             <input
               type="text"
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) =>
+                setDraft(singleWord ? e.target.value.replace(/\s+/g, "") : e.target.value)
+              }
               placeholder={placeholder}
               maxLength={maxLength}
               autoFocus
               style={baseInput}
             />
+          )}
+          {helperText && (
+            <p className="text-xs" style={{ color: "var(--foreground-subtle)" }}>
+              {helperText}
+            </p>
           )}
           {maxLength && (
             <p className="text-xs text-right" style={{ color: "var(--foreground-subtle)" }}>
@@ -263,20 +274,14 @@ function PerfilContent() {
   const router = useRouter();
   const { materias } = useMaterias(user?.uid ?? null);
   const { carreras, carreraActiva } = useCarreras(user?.uid ?? null);
-  const [perfil, setPerfil] = useState<Usuario | null>(null);
+  const { perfil, setPerfil } = usePerfil(user?.uid ?? null);
   const [resetEnviado, setResetEnviado] = useState(false);
   const [enviandoReset, setEnviandoReset] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    if (!user?.uid) return;
-    getPerfilUsuario(user.uid).then((p) => {
-      if (p) {
-        setPerfil(p);
-        setAvatarUrl(p.perfil.avatar_url ?? user.photoURL ?? undefined);
-      }
-    });
-  }, [user]);
+    if (perfil) setAvatarUrl(perfil.perfil.avatar_url ?? user?.photoURL ?? undefined);
+  }, [perfil, user?.photoURL]);
 
   // Estadísticas del perfil
   const materiasAprobadas = materias.filter(m => m.estado === "aprobada");
@@ -341,6 +346,7 @@ function PerfilContent() {
   }
 
   const nombre = perfil?.perfil.nombre ?? user?.displayName ?? "";
+  const alias = perfil?.perfil.alias ?? "";
   const email = perfil?.perfil.email ?? user?.email ?? "";
   const bio = perfil?.perfil.bio ?? "";
   const universidad = perfil?.perfil.universidad ?? "";
@@ -452,6 +458,17 @@ function PerfilContent() {
               placeholder="Tu nombre"
               icon={<User size={11} />}
               onSave={saveField("nombre")}
+            />
+
+            <CampoEditable
+              label="Apodo"
+              valor={alias}
+              placeholder="Ej: Flor"
+              icon={<Sparkles size={11} />}
+              singleWord
+              maxLength={20}
+              helperText='Con qué te gusta que te saluden — una sola palabra. Si lo dejás vacío, usamos tu primer nombre.'
+              onSave={saveField("alias")}
             />
 
             <CampoEditable

@@ -13,6 +13,7 @@ import {
   GoogleAuthProvider,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { crearPerfilUsuario } from "@/lib/firestore";
 import { Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
 
 const provider = new GoogleAuthProvider();
@@ -51,7 +52,15 @@ export default function LoginPage() {
     setError(null);
     setLoadingGoogle(true);
     try {
-      await signInWithPopup(auth, provider);
+      const cred = await signInWithPopup(auth, provider);
+      // Si es la primera vez que esta persona entra (nunca pasó por /register),
+      // todavía no tiene documento en Firestore — crearPerfilUsuario no hace
+      // nada si ya existe, así que es seguro llamarlo en cada login.
+      await crearPerfilUsuario(
+        cred.user.uid,
+        cred.user.displayName ?? "Estudiante",
+        cred.user.email ?? ""
+      );
       router.push("/");
     } catch {
       setError("No se pudo iniciar sesión con Google.");
