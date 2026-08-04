@@ -7,6 +7,7 @@
 
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import {
   BookOpen, Settings, LogOut, Sun, Moon, RefreshCw,
   Layers, BarChart3, User, Menu, X,
@@ -38,9 +39,7 @@ export function DashboardNav() {
     >
       <div className="max-w-5xl mx-auto px-4 h-15 flex items-center justify-between gap-3">
         <Link href="/" className="flex items-center gap-2.5 flex-shrink-0">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "var(--color-primary)" }}>
-            <BookOpen size={15} color="white" />
-          </div>
+          <Image src="/logo.png" alt="Monteflori" width={32} height={32} className="rounded-lg" priority />
           <span className="font-semibold text-lg hidden sm:block" style={{ color: "var(--foreground)" }}>
             Monteflori
           </span>

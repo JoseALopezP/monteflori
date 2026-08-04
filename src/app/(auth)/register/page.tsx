@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import {
   createUserWithEmailAndPassword,
   updateProfile,
@@ -14,7 +15,7 @@ import {
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { crearPerfilUsuario } from "@/lib/firestore";
-import { BookOpen, Mail, Lock, User, Eye, EyeOff, Loader2, GraduationCap } from "lucide-react";
+import { Mail, Lock, User, Eye, EyeOff, Loader2, GraduationCap } from "lucide-react";
 
 const provider = new GoogleAuthProvider();
 
@@ -125,10 +126,10 @@ export default function RegisterPage() {
       <div className="relative w-full max-w-md my-auto animate-fade-in flex flex-col gap-6" style={{ zIndex: 1 }}>
         {/* Cabecera */}
         <div className="flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-3 shadow-md transition-transform hover:scale-105"
-            style={{ background: "var(--color-primary)" }}>
-            <BookOpen size={28} color="white" />
-          </div>
+          <Image
+            src="/logo.png" alt="Monteflori" width={56} height={56} priority
+            className="rounded-2xl mb-3 shadow-md transition-transform hover:scale-105"
+          />
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight" style={{ color: "var(--foreground)" }}>
             Crear cuenta
           </h1>

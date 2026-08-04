@@ -6,13 +6,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import {
   signInWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { BookOpen, Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
 
 const provider = new GoogleAuthProvider();
 
@@ -87,12 +88,10 @@ export default function LoginPage() {
       >
         {/* Cabecera / Logo */}
         <div className="flex flex-col items-center text-center">
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center mb-3 shadow-md transition-transform hover:scale-105"
-            style={{ background: "var(--color-primary)" }}
-          >
-            <BookOpen size={28} color="white" />
-          </div>
+          <Image
+            src="/logo.png" alt="Monteflori" width={56} height={56} priority
+            className="rounded-2xl mb-3 shadow-md transition-transform hover:scale-105"
+          />
           <h1
             className="text-2xl sm:text-3xl font-extrabold tracking-tight"
             style={{ color: "var(--foreground)" }}
