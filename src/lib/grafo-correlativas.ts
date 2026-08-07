@@ -66,7 +66,9 @@ export function getMateriasBloqueadas(grafo: NodoGrafo[]): NodoGrafo[] {
 /**
  * Ordenamiento topológico usando el algoritmo de Kahn.
  * Retorna el orden en que se deberían cursar las materias.
- * Si hay ciclos en el grafo (error de carga), retorna array vacío.
+ * Si hay ciclos (error de carga de correlativas), cae al orden original
+ * en vez de descartar materias — es preferible mostrarlas todas desordenadas
+ * antes que hacer desaparecer parte del plan de estudio.
  */
 export function ordenTopologico(materias: Materia[]): string[] {
   const grafo = buildGrafo(materias);

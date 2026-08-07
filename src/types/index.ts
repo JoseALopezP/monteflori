@@ -157,11 +157,35 @@ export interface CredencialesExternas {
   whatsapp_verificado?: boolean;
 }
 
+// ── Niveles / donaciones ───────────────────────────────────
+
+export type Plan = "gratis" | "donante";
+
+/**
+ * Estado de la donación recurrente del usuario. Solo lo escribe el webhook de
+ * Mercado Pago (server-side) — el cliente nunca debería poder tocarlo.
+ */
+export interface Suscripcion {
+  plan: Plan;
+  /** ISO — hasta cuándo vale el último pago aprobado */
+  donante_activo_hasta?: string;
+  /** ID del preapproval de Mercado Pago, para cruzar con las notificaciones */
+  mercadopago_preapproval_id?: string;
+}
+
+/** Contadores de uso de funciones limitadas en el nivel gratis. */
+export interface Uso {
+  /** ISO — última sincronización con Google Calendar (límite: 1 por mes en gratis) */
+  ultima_sincronizacion_calendar?: string;
+}
+
 export interface Usuario {
   uid: string;
   perfil: Perfil;
   configuracion: ConfiguracionUsuario;
   credenciales_externas?: CredencialesExternas;
+  suscripcion?: Suscripcion;
+  uso?: Uso;
 }
 
 // ── Resultado de cálculo de notas ─────────────────────────

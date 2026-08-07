@@ -4,6 +4,8 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
+import { puedeUsarWhatsApp } from "@/lib/planes";
+import { Suscripcion } from "@/types";
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN!;
 const WA_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN!;
@@ -60,6 +62,15 @@ export async function POST(request: NextRequest) {
       await enviarMensaje(from,
         `Hola! 👋 No encontré tu número registrado en Monteflori.\n\n` +
         `Para usar el bot, ingresá a la app y configurá tu número de WhatsApp en Ajustes ⚙️`
+      );
+      return NextResponse.json({ status: "ok" }, { status: 200 });
+    }
+
+    // El bot es exclusivo de donantes: cubre el costo de la API de WhatsApp.
+    if (!puedeUsarWhatsApp((usuario as { suscripcion?: Suscripcion }).suscripcion)) {
+      await enviarMensaje(from,
+        `El bot de WhatsApp está reservado para quienes bancan el proyecto 💚\n\n` +
+        `Entrá a Monteflori → Bancá el proyecto para activarlo.`
       );
       return NextResponse.json({ status: "ok" }, { status: 200 });
     }

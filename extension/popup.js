@@ -1,7 +1,9 @@
 // extension/popup.js
 // Lógica del popup de la extensión Monteflori
 
-const APP_URL = "http://localhost:3000"; // Cambiar en producción
+// Debe coincidir con alguno de los orígenes de "externally_connectable" en manifest.json,
+// si no el dashboard no puede pedirle los datos sincronizados a la extensión.
+const APP_URL = "https://monteflori.com";
 
 const btnSync = document.getElementById("btn-sync");
 const btnOpen = document.getElementById("btn-open");

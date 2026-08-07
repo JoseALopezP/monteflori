@@ -161,7 +161,15 @@ function MateriaDetalleContent({ params }: PageParams) {
         alert("¡Evento agregado a tu Google Calendar!");
       } else {
         const err = await res.json();
-        alert(err.error ?? "No se pudo sincronizar con Google Calendar");
+        if (err.motivo === "limite_plan") {
+          // Se agotó el cupo mensual del nivel gratis: ofrecemos la salida en vez
+          // de mostrar un error seco.
+          if (confirm(`${err.error}\n\n¿Querés ver cómo bancar el proyecto?`)) {
+            router.push("/donar");
+          }
+        } else {
+          alert(err.error ?? "No se pudo sincronizar con Google Calendar");
+        }
       }
     } catch {
       alert("Error al conectar con Google Calendar");

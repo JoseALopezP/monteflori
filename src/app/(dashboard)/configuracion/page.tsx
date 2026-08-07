@@ -7,8 +7,9 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Settings, Phone, Calendar, Moon, Sun, Monitor,
-  Check, ExternalLink, Bell, BellOff, Shield, Loader2
+  Check, ExternalLink, Bell, BellOff, Shield, Loader2, Heart
 } from "lucide-react";
+import { esDonanteActivo } from "@/lib/planes";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
@@ -25,6 +26,10 @@ function ConfiguracionContent() {
   const [guardando, setGuardando] = useState(false);
   const [guardadoOk, setGuardadoOk] = useState(false);
   const [calendarConectado, setCalendarConectado] = useState(false);
+  const [conectandoCalendar, setConectandoCalendar] = useState(false);
+  const [errorCalendar, setErrorCalendar] = useState<string | null>(null);
+
+  const esDonante = esDonanteActivo(perfil?.suscripcion);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -53,16 +58,24 @@ function ConfiguracionContent() {
     }
   }
 
-  function conectarCalendar() {
-    const params = new URLSearchParams({
-      client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "",
-      redirect_uri: `${window.location.origin}/api/auth/callback/google-calendar`,
-      response_type: "code",
-      scope: "https://www.googleapis.com/auth/calendar.events",
-      access_type: "offline",
-      prompt: "consent",
-    });
-    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  // La URL de autorización se arma en el servidor: lleva un `state` firmado que
+  // acá no podríamos generar sin exponer el secreto.
+  async function conectarCalendar() {
+    if (!user) return;
+    setConectandoCalendar(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch("/api/auth/google-calendar/start", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("No se pudo iniciar la conexión");
+      const { url } = await res.json();
+      window.location.href = url;
+    } catch {
+      setErrorCalendar("No se pudo conectar con Google Calendar. Intentá de nuevo.");
+      setConectandoCalendar(false);
+    }
   }
 
   const inputStyle = {
@@ -190,6 +203,44 @@ function ConfiguracionContent() {
             </div>
           </div>
 
+          {/* Nivel / donación */}
+          <div className="rounded-2xl p-5 border" style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
+            <h2 className="font-bold text-base mb-1 flex items-center gap-2" style={{ color: "var(--foreground)" }}>
+              <Heart size={16} style={{ color: "var(--color-alert)" }} />
+              Tu nivel
+            </h2>
+            {esDonante ? (
+              <>
+                <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+                  Sos <strong style={{ color: "var(--color-primary)" }}>donante</strong> — gracias por bancar el proyecto.
+                  {perfil?.suscripcion?.donante_activo_hasta && (
+                    <> Activo hasta el{" "}
+                      {new Date(perfil.suscripcion.donante_activo_hasta).toLocaleDateString("es-AR", {
+                        day: "numeric", month: "long", year: "numeric",
+                      })}.
+                    </>
+                  )}
+                </p>
+                <Link href="/donar" className="text-sm font-semibold hover:underline mt-2 inline-block"
+                  style={{ color: "var(--color-primary)" }}>
+                  Ver detalles
+                </Link>
+              </>
+            ) : (
+              <>
+                <p className="text-sm mb-3" style={{ color: "var(--foreground-muted)" }}>
+                  Estás en el nivel <strong>gratis</strong>: todo ilimitado salvo Google Calendar,
+                  que permite una sincronización por mes.
+                </p>
+                <Link href="/donar"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all hover:opacity-90"
+                  style={{ background: "var(--color-primary)", color: "white" }}>
+                  <Heart size={14} /> Bancá el proyecto
+                </Link>
+              </>
+            )}
+          </div>
+
           {/* Google Calendar */}
           <div className="rounded-2xl p-5 border" style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
             <h2 className="font-bold text-base mb-1 flex items-center gap-2" style={{ color: "var(--foreground)" }}>
@@ -198,6 +249,7 @@ function ConfiguracionContent() {
             </h2>
             <p className="text-sm mb-4" style={{ color: "var(--foreground-muted)" }}>
               Sincronizá automáticamente tus fechas de parciales y finales con tu calendario de Google.
+              {!esDonante && " En el nivel gratis podés sincronizar una vez por mes."}
             </p>
 
             {calendarConectado ? (
@@ -209,14 +261,24 @@ function ConfiguracionContent() {
                 </span>
               </div>
             ) : (
-              <button
-                id="btn-conectar-calendar"
-                onClick={conectarCalendar}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm border transition-all hover:opacity-80"
-                style={{ background: "var(--background-alt)", borderColor: "var(--color-card-border)", color: "var(--foreground)" }}>
-                <ExternalLink size={14} />
-                Conectar Google Calendar
-              </button>
+              <>
+                <button
+                  id="btn-conectar-calendar"
+                  onClick={conectarCalendar}
+                  disabled={conectandoCalendar}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm border transition-all hover:opacity-80 disabled:opacity-50"
+                  style={{ background: "var(--background-alt)", borderColor: "var(--color-card-border)", color: "var(--foreground)" }}>
+                  {conectandoCalendar
+                    ? <Loader2 size={14} className="animate-spin" />
+                    : <ExternalLink size={14} />}
+                  {conectandoCalendar ? "Redirigiendo..." : "Conectar Google Calendar"}
+                </button>
+                {errorCalendar && (
+                  <p className="text-xs mt-2 font-medium" style={{ color: "var(--color-alert)" }}>
+                    {errorCalendar}
+                  </p>
+                )}
+              </>
             )}
           </div>
 

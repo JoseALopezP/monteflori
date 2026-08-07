@@ -4,7 +4,16 @@ export const dynamic = "force-dynamic";
 // Llamado desde el cliente cuando el usuario agrega una fecha importante
 
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { adminDb, adminAuth } from "@/lib/firebase-admin";
+import { puedeSincronizarCalendar } from "@/lib/planes";
+
+const bodySchema = z.object({
+  nombre: z.string().trim().min(1).max(200),
+  // Tiene que ser parseable como fecha: si no, terminaría creando un evento inválido en Google.
+  fecha: z.string().refine((f) => !Number.isNaN(Date.parse(f)), "fecha inválida"),
+  descripcion: z.string().max(2000).optional(),
+});
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,15 +27,28 @@ export async function POST(request: NextRequest) {
     const decoded = await adminAuth.verifyIdToken(idToken);
     const uid = decoded.uid;
 
-    const { nombre, fecha, descripcion } = await request.json();
+    const parsed = bodySchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Datos inválidos: se requiere nombre y una fecha válida." },
+        { status: 400 }
+      );
+    }
+    const { nombre, fecha, descripcion } = parsed.data;
 
-    if (!nombre || !fecha) {
-      return NextResponse.json({ error: "nombre y fecha son requeridos" }, { status: 400 });
+    const usuarioDoc = await adminDb.collection("usuarios").doc(uid).get();
+    const datosUsuario = usuarioDoc.data();
+
+    // El límite se aplica acá, en el servidor: el cliente no puede saltearlo.
+    const limite = puedeSincronizarCalendar(datosUsuario?.suscripcion, datosUsuario?.uso);
+    if (!limite.permitido) {
+      return NextResponse.json(
+        { error: limite.motivo, motivo: "limite_plan" },
+        { status: 403 }
+      );
     }
 
-    // Obtener refresh_token del usuario
-    const usuarioDoc = await adminDb.collection("usuarios").doc(uid).get();
-    const refreshToken = usuarioDoc.data()?.credenciales_externas?.google_calendar_refresh_token;
+    const refreshToken = datosUsuario?.credenciales_externas?.google_calendar_refresh_token;
 
     if (!refreshToken) {
       return NextResponse.json(
@@ -96,6 +118,14 @@ export async function POST(request: NextRequest) {
     }
 
     const evento = await eventoResponse.json();
+
+    // Se registra recién después de que Google confirmó el evento: si la
+    // sincronización falla, no le gastamos el cupo del mes al usuario.
+    await adminDb
+      .collection("usuarios")
+      .doc(uid)
+      .set({ uso: { ultima_sincronizacion_calendar: new Date().toISOString() } }, { merge: true });
+
     console.log(`[Calendar Sync] Evento creado: ${evento.id} para uid: ${uid}`);
 
     return NextResponse.json({ eventId: evento.id, htmlLink: evento.htmlLink });

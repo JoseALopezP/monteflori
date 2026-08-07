@@ -6,6 +6,8 @@ Incluye una extensión de navegador que lee tus materias y notas directamente de
 
 > ⚠️ Este proyecto corre sobre versiones de Next.js, React y Firebase más nuevas que las habituales, con cambios de comportamiento respecto a lo estándar. Antes de asumir convenciones "de siempre", revisá `AGENTS.md` y la documentación empaquetada en `node_modules/next/dist/docs/`.
 
+📋 **[PASOS-MANUALES.md](PASOS-MANUALES.md)** — configuración pendiente que requiere crear cuentas o generar credenciales (Firestore, Google, Mercado Pago, WhatsApp, Sentry), explicada paso a paso.
+
 ## Stack
 
 - **Next.js** (App Router) + **React** + **TypeScript** + **Tailwind CSS**
@@ -38,8 +40,10 @@ Copiá `.env.local.example` (o creá `.env.local` a mano) con estas claves:
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | ídem |
 | `FIREBASE_SERVICE_ACCOUNT_KEY` | JSON del service account, para `firebase-admin` (API routes, server-side) |
 | `NEXT_PUBLIC_APP_URL` | URL pública de la app (usada en redirects de OAuth) |
-| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth de Google Calendar |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth de Google Calendar (ambas server-side) |
 | `NEXT_PUBLIC_EXTENSION_ID` | ID de la extensión de Chrome (ya viene fijo en `extension/manifest.json`, no hace falta generarlo de nuevo) |
+| `OAUTH_STATE_SECRET` | Firma el parámetro `state` del OAuth de Google (anti-CSRF). Generalo con `openssl rand -base64 32` |
+| `MERCADOPAGO_ACCESS_TOKEN` / `MERCADOPAGO_WEBHOOK_SECRET` | Donaciones recurrentes (ver [Niveles](#niveles-gratis-y-donante)) |
 | `CRON_SECRET` | Protege el endpoint `/api/cron/send-reminders` |
 | `WHATSAPP_ACCESS_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_VERIFY_TOKEN` / `WHATSAPP_API_VERSION` | WhatsApp Cloud API |
 | `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` / `SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN` | Reporte de errores (opcional, ver [Observabilidad](#observabilidad)) |
@@ -50,6 +54,26 @@ Estos dos pasos **no** están en el repo — hay que hacerlos una vez por proyec
 
 1. **Crear la base de datos de Firestore** en [console.firebase.google.com](https://console.firebase.google.com) → Firestore Database → Crear base de datos. Si nunca se hizo, cualquier lectura/escritura falla con `PERMISSION_DENIED: Cloud Firestore API has not been used...`.
 2. **Publicar las reglas de seguridad**: pegar el contenido de [`firestore.rules`](firestore.rules) y [`storage.rules`](storage.rules) en la consola (Firestore Database → Reglas / Storage → Reglas) y publicar. El repo no las despliega solo — sin esto, todo falla con `Missing or insufficient permissions`.
+
+## Niveles: gratis y donante
+
+Monteflori es gratis. Las donaciones existen porque algunas funciones cuestan plata por uso (Google Calendar API, WhatsApp Cloud API, servidor).
+
+| | Gratis | Donante |
+|---|---|---|
+| Materias, notas, fórmula de cálculo, correlativas, gráficos | ✅ sin límite | ✅ sin límite |
+| Extensión de SIU Guaraní | ✅ sin límite | ✅ sin límite |
+| Google Calendar | 1 sincronización por mes | ilimitado |
+| Bot de WhatsApp | ❌ | ✅ (cuando se habilite, ver más abajo) |
+
+Detalles de implementación:
+
+- La lógica de límites vive en [`src/lib/planes.ts`](src/lib/planes.ts) (pura y testeada) y **se aplica en el servidor**, no en el cliente.
+- El nivel donante se activa solo desde el webhook de Mercado Pago (`/api/mercadopago/webhook`), que valida la firma HMAC del header `x-signature` y vuelve a consultar el estado real del preapproval a la API de MP en vez de confiar en el cuerpo de la notificación.
+- `firestore.rules` **prohíbe al cliente escribir** `suscripcion`, `uso` y `credenciales_externas` — si no, cualquiera se marcaría donante desde la consola del navegador. Solo el Admin SDK (server-side) puede tocarlos.
+- La donación vence sola: si Mercado Pago deja de cobrar, `donante_activo_hasta` pasa y el usuario vuelve a gratis sin proceso manual.
+
+Para habilitarlo hace falta crear una aplicación en [Mercado Pago Developers](https://www.mercadopago.com.ar/developers) y completar `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_WEBHOOK_SECRET`. Sin esas variables, la app funciona normal y el botón de donar devuelve un mensaje de "todavía no habilitado".
 
 ## Observabilidad
 

@@ -56,7 +56,8 @@ export async function crearPerfilUsuario(
         notificaciones_email: true,
         carrera_activa: null,
       },
-      credenciales_externas: {},
+      // credenciales_externas / suscripcion / uso los escribe solo el servidor
+      // (ver firestore.rules): el cliente ni siquiera puede inicializarlos.
     });
   }
 }
@@ -101,12 +102,6 @@ export async function updatePerfil(
 }
 
 
-
-export async function saveRefreshTokenCalendar(uid: string, token: string): Promise<void> {
-  await updateDoc(paths.usuario(uid), {
-    "credenciales_externas.google_calendar_refresh_token": token,
-  });
-}
 
 // ── Carreras ───────────────────────────────────────────────
 

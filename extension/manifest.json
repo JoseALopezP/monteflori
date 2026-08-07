@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Monteflori — Sincronizador Universitario",
   "short_name": "Monteflori Sync",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0YuA+lwr2Pj09fzpJ3u/Yyx5av46aIl7LLLlNlcf8PUe05wW1gjYSEH2giZ679ffbsPNadQ8NIvfXzECR0DritxOuURQq2XOHlBe3lz+SzRzRYYJ07GcIAranDtPSgFYQISXtkq4MInJvZTe4Ze3QZDC24ZkrqN+rVniwIoBh6kKrd3rybwG6asaugxyQF1/M6OF9a20p5FekzaqxMKf+AEs5HjL0juXequlSrKF8dizepkNELkEI6RiEa+k+JIrqS1IQiqn3BUWJB9WRM8tbD4D/FErAYcOV8aCnL6bomo6+PXA7GWg0ivawZntxFq4Bj3evcjcFc7B0BGn2Rm42wIDAQAB",
   "description": "Sincronizá automáticamente tus notas y materias del portal universitario con el dashboard de Monteflori.",
   "permissions": [
@@ -37,7 +37,8 @@
     "matches": [
       "http://localhost:3000/*",
       "https://*.vercel.app/*",
-      "https://monteflori.app/*"
+      "https://monteflori.com/*",
+      "https://www.monteflori.com/*"
     ]
   },
   "icons": {

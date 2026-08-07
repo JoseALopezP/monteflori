@@ -10,7 +10,7 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   BookOpen, Settings, LogOut, Sun, Moon, RefreshCw,
-  Layers, BarChart3, User, Menu, X,
+  Layers, BarChart3, User, Menu, X, Heart,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuthContext } from "@/components/auth/AuthProvider";
@@ -114,6 +114,9 @@ export function DashboardNav() {
               <Link href="/configuracion" className="flex items-center gap-3 px-4 py-2.5 text-sm hover:opacity-75 transition-opacity" style={{ color: "var(--foreground)" }}>
                 <Settings size={14} /> Configuración
               </Link>
+              <Link href="/donar" className="flex items-center gap-3 px-4 py-2.5 text-sm hover:opacity-75 transition-opacity" style={{ color: "var(--foreground)" }}>
+                <Heart size={14} /> Bancá el proyecto
+              </Link>
               <button
                 onClick={async () => {
                   const { auth } = await import("@/lib/firebase");
@@ -175,6 +178,9 @@ export function DashboardNav() {
           </Link>
           <Link href="/configuracion" onClick={() => setMenuAbierto(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium" style={{ color: "var(--foreground)" }}>
             <Settings size={15} /> Configuración
+          </Link>
+          <Link href="/donar" onClick={() => setMenuAbierto(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium" style={{ color: "var(--foreground)" }}>
+            <Heart size={15} /> Bancá el proyecto
           </Link>
           <button
             onClick={async () => {
