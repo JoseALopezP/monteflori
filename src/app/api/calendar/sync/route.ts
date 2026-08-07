@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { adminDb, adminAuth } from "@/lib/firebase-admin";
 import { puedeSincronizarCalendar } from "@/lib/planes";
+import { verificarRateLimit } from "@/lib/rate-limit";
 
 const bodySchema = z.object({
   nombre: z.string().trim().min(1).max(200),
@@ -26,6 +27,16 @@ export async function POST(request: NextRequest) {
     const idToken = authHeader.split("Bearer ")[1];
     const decoded = await adminAuth.verifyIdToken(idToken);
     const uid = decoded.uid;
+
+    // Cada llamada consume cuota de la API de Google, así que ponemos un techo
+    // por usuario aunque sea donante (ilimitado no quiere decir sin frenos).
+    const limiteRate = verificarRateLimit(`calendar:${uid}`, 20, 60_000);
+    if (!limiteRate.permitido) {
+      return NextResponse.json(
+        { error: `Demasiadas sincronizaciones seguidas. Probá en ${limiteRate.reintentarEn} segundos.` },
+        { status: 429, headers: { "Retry-After": String(limiteRate.reintentarEn) } }
+      );
+    }
 
     const parsed = bodySchema.safeParse(await request.json());
     if (!parsed.success) {

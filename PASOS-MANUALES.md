@@ -27,6 +27,18 @@ Cada paso dice qué pasa si no lo hacés, así podés decidir qué postergar sin
 
 ---
 
+### 1.b Publicar las reglas nuevas de Storage
+
+Junto con las de Firestore, hay que republicar las de Storage. **Había un agujero real**: el nombre del archivo del avatar salía del archivo que subía el usuario, así que renombrándolo (`a.png`, `b.png`, …) se podían acumular subidas de 5 MB sin tope en tu cuenta. Ahora el código guarda siempre en la misma ruta y las reglas solo permiten escribir ahí.
+
+1. Firebase Console → **Compilación → Storage** → pestaña **Reglas**.
+2. Copiá todo el contenido de [`storage.rules`](storage.rules) y pegalo.
+3. **Publicar**.
+
+> Si ya tenías un avatar subido con el esquema viejo, va a seguir viéndose (la lectura sigue permitiendo cualquier nombre); la próxima vez que subas uno nuevo pasa a la ruta fija.
+
+---
+
 ### 2. Generar `OAUTH_STATE_SECRET`
 
 **Qué rompe si no lo hacés**: conectar Google Calendar tira error. La app funciona igual en todo lo demás.
@@ -227,6 +239,54 @@ Mandá un mensaje de WhatsApp al número configurado con el texto `ayuda`. Deber
 
 ---
 
+### 6.b Activar Firebase App Check (recomendado antes de abrirlo al público)
+
+**Qué resuelve**: tu `NEXT_PUBLIC_FIREBASE_API_KEY` es visible en el navegador (eso es normal y no es un secreto). Pero sin App Check, cualquiera puede tomarla y pegarle a tu Firestore **desde un script**, sin pasar por tu app. App Check hace que Firebase rechace todo lo que no venga de tu sitio real.
+
+El código ya está listo ([`src/lib/firebase.ts`](src/lib/firebase.ts)): si no configurás la variable, App Check simplemente no se activa y todo funciona igual.
+
+#### Pasos
+
+1. **Crear la clave de reCAPTCHA**: andá a [google.com/recaptcha/admin](https://www.google.com/recaptcha/admin) y registrá un sitio nuevo.
+   - Tipo: **reCAPTCHA v3**
+   - Dominios: `monteflori.com`, `www.monteflori.com` y `localhost`
+   - Al crearlo te da una **clave de sitio** (site key) y una **clave secreta**.
+
+2. **Registrar la app en Firebase**: Firebase Console → ⚙️ **Configuración del proyecto** → pestaña **App Check** → elegí tu app web → proveedor **reCAPTCHA v3** → pegá la **clave secreta** del paso 1 → Guardar.
+
+3. **Cargar la site key**: en Vercel → Environment Variables:
+
+   | Key | Value |
+   |---|---|
+   | `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | La **clave de sitio** (la pública, no la secreta) |
+
+   Agregala también a tu `.env.local` si querés probarlo en local.
+
+4. **Redeployá**.
+
+5. **Empezá en modo monitoreo**: en Firebase Console → App Check → pestaña **APIs**, vas a ver Firestore y Storage. Dejalos **sin aplicar** (unenforced) unos días y mirá las métricas: te muestran qué porcentaje de pedidos vienen verificados. Cuando veas que casi todo está verde, recién ahí activá **Aplicar** (enforce).
+
+> ⚠️ **No actives "Aplicar" de una**: si algo quedó mal configurado, dejás afuera a todos los usuarios (incluido vos) hasta que lo arregles. El modo monitoreo existe justamente para eso.
+
+**Para desarrollo local**: la primera vez que corras la app con la variable puesta, Firebase imprime en la consola del navegador un *debug token*. Copialo y registralo en Firebase Console → App Check → tu app → menú ⋮ → **Administrar tokens de depuración**. Si no, en local vas a quedar bloqueado cuando actives el enforcement.
+
+---
+
+### 6.c Prender el proxy de Cloudflare (DDoS y rate limiting gratis)
+
+Cuando configuramos el dominio te dije de dejar la nube **gris** — era necesario para que Vercel pudiera emitir el certificado SSL. Una vez que el dominio figure como **Valid Configuration** en Vercel, podés prenderlo y ganás protección contra tráfico masivo sin pagar nada.
+
+1. En Cloudflare → **SSL/TLS** → **Overview**: poné el modo en **Full (strict)**.
+   **Este paso va primero.** Si lo dejás en "Flexible" (el default) y prendés el proxy, se arma un loop de redirects y el sitio se cae.
+2. Recién ahí, en **DNS**, pasá a **naranja** (Proxied) los registros que apuntan a Vercel.
+3. Entrá al sitio y verificá que cargue bien con HTTPS.
+
+Con el proxy activo ganás automáticamente mitigación de DDoS. Si además querés reglas de rate limiting propias, están en **Security → WAF → Rate limiting rules** (el plan gratis incluye una regla).
+
+> Si algo se rompe, volver la nube a gris revierte el cambio en segundos.
+
+---
+
 ### 7. Sentry (reporte de errores)
 
 **Qué te perdés si no lo hacés**: cuando a alguien le explote algo en producción, no te enterás salvo que te avise.
@@ -273,6 +333,7 @@ Checklist completa de lo que la app usa hoy. Todo lo que esté vacío en Vercel 
 | `FIREBASE_SERVICE_ACCOUNT_KEY` | **Sí** | Operaciones del servidor |
 | `NEXT_PUBLIC_APP_URL` | **Sí** | Redirects de OAuth y pagos |
 | `NEXT_PUBLIC_EXTENSION_ID` | Sí, si usás la extensión | Puente con la extensión |
+| `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | No, pero recomendada | Firebase App Check (ver 6.b) |
 | `OAUTH_STATE_SECRET` | Sí, si usás Calendar | Seguridad del OAuth |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Sí, si usás Calendar | Google Calendar |
 | `MERCADOPAGO_ACCESS_TOKEN` / `MERCADOPAGO_WEBHOOK_SECRET` | Sí, si querés donaciones | Donaciones |
@@ -304,7 +365,6 @@ Publicarla en la Chrome Web Store implica:
 Para que tengas el panorama completo, esto es lo que falta y **no** depende de vos:
 
 - **Validar la firma del webhook de WhatsApp** (bloquea el punto 6).
-- **Rate limiting** en las rutas de API — sobre todo `calendar/sync`, que consume cuota de Google.
 - **Páginas legales** (privacidad y términos): necesito que me digas qué querés declarar y qué contacto poner.
 - **Tests end-to-end** (hoy hay 81 tests, pero solo de lógica pura, no de flujos completos).
 - **CI en GitHub Actions** para que corran los tests en cada push.

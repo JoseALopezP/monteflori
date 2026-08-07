@@ -75,6 +75,17 @@ Detalles de implementación:
 
 Para habilitarlo hace falta crear una aplicación en [Mercado Pago Developers](https://www.mercadopago.com.ar/developers) y completar `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_WEBHOOK_SECRET`. Sin esas variables, la app funciona normal y el botón de donar devuelve un mensaje de "todavía no habilitado".
 
+## Defensas contra abuso
+
+Como Firebase cobra por uso, la app tiene varias barreras para que nadie pueda inflar la factura:
+
+- **Reglas de Firestore** ([`firestore.rules`](firestore.rules)): además de aislar los datos por usuario, validan tipos y acotan largos de texto y tamaños de lista. Sin eso, la base se puede usar como almacenamiento gratuito (un documento admite hasta 1 MB).
+- **Reglas de Storage** ([`storage.rules`](storage.rules)): el avatar se escribe siempre en la ruta fija `avatars/{uid}/avatar`, así cada subida pisa la anterior. Antes el nombre salía del archivo del usuario, así que renombrándolo se podían acumular archivos de 5 MB sin tope.
+- **Firebase App Check** ([`src/lib/firebase.ts`](src/lib/firebase.ts)): solo se aceptan pedidos que vengan de la app real, no de scripts externos usando la API key pública. Se activa con `NEXT_PUBLIC_RECAPTCHA_SITE_KEY`; sin esa variable no se inicializa.
+- **Rate limiting** ([`src/lib/rate-limit.ts`](src/lib/rate-limit.ts)) en las rutas que gastan cuota de terceros (Google Calendar, Mercado Pago). Es en memoria: frena el abuso obvio, pero **no es un límite global exacto** porque cada instancia serverless tiene su propia memoria. Para tráfico masivo, la defensa real es Cloudflare adelante del dominio.
+
+Los pasos de consola para activar App Check y Cloudflare están en [PASOS-MANUALES.md](PASOS-MANUALES.md).
+
 ## Observabilidad
 
 Errores de cliente y servidor se reportan a [Sentry](https://sentry.io) usando la instrumentación nativa de Next.js (`instrumentation.ts` / `instrumentation-client.ts`, no `sentry.*.config.ts` — ese patrón viejo). **Sin `SENTRY_DSN`/`NEXT_PUBLIC_SENTRY_DSN` configurados, no hace nada** — no requiere cuenta para desarrollar. Para activarlo:

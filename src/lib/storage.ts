@@ -6,11 +6,15 @@ import { storage } from "./firebase";
 
 /**
  * Sube una imagen de avatar para el usuario y retorna la URL de descarga.
- * La imagen se almacena en: avatars/{uid}/avatar.{ext}
+ * La imagen se almacena SIEMPRE en la misma ruta: avatars/{uid}/avatar
+ *
+ * El nombre es fijo a propósito: antes se derivaba de la extensión del archivo
+ * subido, así que renombrando el archivo (a.png, b.png, ...) se podían acumular
+ * archivos de 5 MB sin límite en la cuenta. Con una ruta única, cada subida
+ * pisa la anterior. El tipo real se guarda en contentType.
  */
 export async function uploadAvatar(uid: string, file: File): Promise<string> {
-  const ext = file.name.split(".").pop() ?? "jpg";
-  const storageRef = ref(storage, `avatars/${uid}/avatar.${ext}`);
+  const storageRef = ref(storage, `avatars/${uid}/avatar`);
 
   // Subir el archivo
   await uploadBytes(storageRef, file, {

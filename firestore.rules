@@ -2,6 +2,58 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ── Helpers de validación ──────────────────────────────────────────
+    // Acotan lo que se puede guardar para que la base no se pueda usar como
+    // almacenamiento gratuito (un documento de Firestore admite hasta 1 MB:
+    // sin topes, alguien podría meter blobs en cualquier campo de texto).
+
+    function esDueño(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Texto opcional: si el campo viene, tiene que ser string y no exceder el largo.
+    function textoOpcionalOk(datos, campo, maxLargo) {
+      return !(campo in datos)
+        || (datos[campo] is string && datos[campo].size() <= maxLargo);
+    }
+
+    // Lista opcional: si el campo viene, tiene que ser lista y no exceder el tamaño.
+    function listaOpcionalOk(datos, campo, maxItems) {
+      return !(campo in datos)
+        || (datos[campo] is list && datos[campo].size() <= maxItems);
+    }
+
+    function materiaValida() {
+      let d = request.resource.data;
+      return d.nombre is string && d.nombre.size() > 0 && d.nombre.size() <= 200
+        && textoOpcionalOk(d, 'codigo_interno', 50)
+        && textoOpcionalOk(d, 'periodo_cursado', 50)
+        && textoOpcionalOk(d, 'estado', 20)
+        && listaOpcionalOk(d, 'evaluaciones', 200)
+        && listaOpcionalOk(d, 'fechas_importantes', 200)
+        && listaOpcionalOk(d, 'correlativas_requisito', 100)
+        && listaOpcionalOk(d, 'carreras_vinculadas', 20);
+    }
+
+    function carreraValida() {
+      let d = request.resource.data;
+      return d.nombre is string && d.nombre.size() > 0 && d.nombre.size() <= 200
+        && textoOpcionalOk(d, 'institucion', 200)
+        && textoOpcionalOk(d, 'color', 30);
+    }
+
+    function perfilValido() {
+      let d = request.resource.data;
+      return !('perfil' in d) || (
+        textoOpcionalOk(d.perfil, 'nombre', 200)
+        && textoOpcionalOk(d.perfil, 'email', 320)
+        && textoOpcionalOk(d.perfil, 'bio', 500)
+        && textoOpcionalOk(d.perfil, 'universidad', 200)
+        && textoOpcionalOk(d.perfil, 'alias', 40)
+        && textoOpcionalOk(d.perfil, 'avatar_url', 2000)
+      );
+    }
+
     // ── Regla principal: cada usuario solo puede acceder a sus propios datos ──
     match /usuarios/{userId} {
       // Campos que SOLO puede escribir el servidor (Admin SDK, que ignora estas
@@ -12,26 +64,28 @@ service cloud.firestore {
         return ['suscripcion', 'uso', 'credenciales_externas'];
       }
 
-      allow read: if request.auth != null && request.auth.uid == userId;
+      allow read: if esDueño(userId);
 
-      allow create: if request.auth != null
-        && request.auth.uid == userId
-        && !request.resource.data.keys().hasAny(camposDeServidor());
+      allow create: if esDueño(userId)
+        && !request.resource.data.keys().hasAny(camposDeServidor())
+        && perfilValido();
 
-      allow update: if request.auth != null
-        && request.auth.uid == userId
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(camposDeServidor());
+      allow update: if esDueño(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(camposDeServidor())
+        && perfilValido();
 
-      allow delete: if request.auth != null && request.auth.uid == userId;
+      allow delete: if esDueño(userId);
 
       // Subcolección de carreras
       match /carreras/{carreraId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow read, delete: if esDueño(userId);
+        allow create, update: if esDueño(userId) && carreraValida();
       }
 
       // Subcolección de materias
       match /materias/{materiaId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow read, delete: if esDueño(userId);
+        allow create, update: if esDueño(userId) && materiaValida();
       }
     }
 

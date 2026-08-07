@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { adminAuth } from "@/lib/firebase-admin";
 import { DONACION_MINIMA_ARS } from "@/lib/planes";
+import { verificarRateLimit } from "@/lib/rate-limit";
 
 const bodySchema = z.object({
   // El usuario puede donar más que el mínimo, pero nunca menos.
@@ -27,6 +28,16 @@ export async function POST(request: NextRequest) {
     }
 
     const decoded = await adminAuth.verifyIdToken(authHeader.split("Bearer ")[1]);
+
+    // Cada llamada crea una suscripción en Mercado Pago: sin tope, un script
+    // podría generar cientos de preapprovals basura en la cuenta.
+    const limiteRate = verificarRateLimit(`mp-suscripcion:${decoded.uid}`, 5, 60_000);
+    if (!limiteRate.permitido) {
+      return NextResponse.json(
+        { error: `Demasiados intentos seguidos. Probá en ${limiteRate.reintentarEn} segundos.` },
+        { status: 429, headers: { "Retry-After": String(limiteRate.reintentarEn) } }
+      );
+    }
 
     const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
     if (!accessToken) {

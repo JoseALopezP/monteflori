@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth } from "@/lib/firebase-admin";
 import { crearState } from "@/lib/oauth-state";
+import { verificarRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,6 +17,15 @@ export async function POST(request: NextRequest) {
     }
 
     const decoded = await adminAuth.verifyIdToken(authHeader.split("Bearer ")[1]);
+
+    const limiteRate = verificarRateLimit(`oauth-start:${decoded.uid}`, 10, 60_000);
+    if (!limiteRate.permitido) {
+      return NextResponse.json(
+        { error: "Demasiados intentos seguidos. Esperá un momento." },
+        { status: 429, headers: { "Retry-After": String(limiteRate.reintentarEn) } }
+      );
+    }
+
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
     const params = new URLSearchParams({
