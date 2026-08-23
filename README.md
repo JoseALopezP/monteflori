@@ -77,6 +77,19 @@ Detalles de implementación:
 
 Para habilitarlo hace falta crear una aplicación en [Mercado Pago Developers](https://www.mercadopago.com.ar/developers) y completar `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_WEBHOOK_SECRET`. Sin esas variables, la app funciona normal y el botón de donar devuelve un mensaje de "todavía no habilitado".
 
+## Catálogo compartido y comentarios
+
+Las materias de cada usuario son privadas, pero apuntan a una entrada de un **catálogo común** (`catalogo_materias`). Ese vínculo es lo que permite que dos estudiantes de la misma facultad estén mirando la misma materia y compartan comentarios — sin él, cada uno tendría un documento suelto con un ID aleatorio y no habría dónde colgar una opinión.
+
+- **Deduplicación**: la clave es `institución + código` cuando hay código (SIU da cosas como `F12400`), y `institución + nombre normalizado` cuando no. El código de SIU se repite entre carreras, así que una materia que aparece en dos carreras de la misma facultad es **una sola entrada** y comparte comentarios. Ver [`src/lib/catalogo.ts`](src/lib/catalogo.ts).
+- **Al crear una materia a mano** se busca en el catálogo mientras se escribe y se ofrecen las coincidencias, con cuánta gente las tiene, para no crear un duplicado.
+- **Comentarios** ([`src/lib/comentarios.ts`](src/lib/comentarios.ts)): se publican con el **alias** del perfil, no con el nombre real — opinar sobre una cátedra con nombre y apellido puede exponer al estudiante frente al docente. El uid queda guardado para moderación pero no se muestra.
+- **Links**: solo dominios de una whitelist, comparando el **hostname exacto** o un subdominio real. Nunca con `includes()`, que dejaría pasar `drive.google.com.attacker.net`.
+- **Votos y reportes**: un documento por usuario (el uid es el ID), así nadie puede votar o reportar dos veces. Los contadores se actualizan en una transacción del servidor.
+- **Moderación**: a los 3 reportes de personas distintas el comentario se oculta solo; el panel en `/admin/moderacion` permite restaurar o eliminar. Quién es admin sale de `ADMIN_UIDS`.
+
+**Nada de esto se puede escribir desde el cliente.** Las reglas de Firestore dan lectura a usuarios autenticados y niegan toda escritura: los comentarios, votos y entradas del catálogo pasan sí o sí por las rutas de API, que es donde se puede validar de verdad.
+
 ## Sincronización con Google Calendar
 
 Las fechas importantes (parciales, finales, TPs) se reflejan solas en el calendario del usuario. Es gratis para todos: la API de Google no tiene costo para nosotros y no hay ningún proceso en segundo plano.

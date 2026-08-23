@@ -89,6 +89,24 @@ service cloud.firestore {
       }
     }
 
+    // ── Catálogo compartido de materias y comentarios ──
+    //
+    // Lectura: cualquier usuario autenticado (es contenido comunitario).
+    // Escritura: NADIE desde el cliente. Todo pasa por las rutas de API con el
+    // Admin SDK, que es lo único que permite validar de verdad — largo del
+    // texto, dominios de los links, cooldown entre comentarios, contadores de
+    // votos consistentes. Si el cliente pudiera escribir, podría inventar
+    // votos, falsear el alias de otro o llenar el catálogo de basura.
+    match /catalogo_materias/{materiaId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+
+      match /{documentoAnidado=**} {
+        allow read: if request.auth != null;
+        allow write: if false;
+      }
+    }
+
     // ── Ninguna otra colección es accesible ──
     match /{document=**} {
       allow read, write: if false;

@@ -3,17 +3,19 @@
 // src/app/(dashboard)/materias/nueva/page.tsx
 // Formulario para crear una nueva materia
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, X, AlertCircle } from "lucide-react";
+import { Plus, X, AlertCircle, Users } from "lucide-react";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useCarreras } from "@/hooks/useCarreras";
 import { useMaterias } from "@/hooks/useMaterias";
 import { addMateria } from "@/lib/firestore";
 import { gruposPorDefecto } from "@/lib/calculo-notas";
-import { Materia } from "@/types";
+import { buscarEnCatalogo, vincularConCatalogo } from "@/lib/catalogoCliente";
+import { normalizarTexto } from "@/lib/catalogo";
+import { Materia, MateriaCatalogo } from "@/types";
 
 function NuevaMateriaContent() {
   const { user } = useAuthContext();
@@ -33,6 +35,26 @@ function NuevaMateriaContent() {
   const [notaPromocionar, setNotaPromocionar] = useState(7);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [coincidencias, setCoincidencias] = useState<MateriaCatalogo[]>([]);
+
+  // La institución sale de la primera carrera elegida: es la que define en qué
+  // catálogo buscar (las materias de la UNSJ no se mezclan con las de UADE).
+  const carreraPrincipal =
+    carreras.find((c) => c.id === carrerasSeleccionadas[0]) ?? carreras[0] ?? null;
+
+  // Buscar en el catálogo mientras se escribe, para avisar si la materia ya
+  // existe en vez de crear un duplicado.
+  useEffect(() => {
+    if (!carreraPrincipal?.institucion || nombre.trim().length < 3) {
+      setCoincidencias([]);
+      return;
+    }
+    const institucionId = normalizarTexto(carreraPrincipal.institucion);
+    const timer = setTimeout(() => {
+      buscarEnCatalogo(institucionId, nombre).then(setCoincidencias);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [nombre, carreraPrincipal?.institucion]);
 
   function toggleCarrera(id: string) {
     setCarrerasSeleccionadas((prev) =>
@@ -54,7 +76,7 @@ function NuevaMateriaContent() {
     setLoading(true);
 
     try {
-      await addMateria(user.uid, {
+      const nuevoId = await addMateria(user.uid, {
         nombre: nombre.trim(),
         codigo_interno: codigo.trim() || undefined,
         estado,
@@ -72,6 +94,21 @@ function NuevaMateriaContent() {
         evaluaciones: [],
         ultima_actualizacion: new Date().toISOString(),
       });
+
+      // Vincular con el catálogo compartido para que quede unida a la misma
+      // materia que cargaron otros estudiantes de la facultad. Si falla, la
+      // materia igual quedó guardada.
+      if (carreraPrincipal) {
+        await vincularConCatalogo(user, carreraPrincipal.institucion, [
+          {
+            materia_id: nuevoId,
+            nombre: nombre.trim(),
+            codigo: codigo.trim() || null,
+            carrera: carreraPrincipal.nombre,
+          },
+        ]);
+      }
+
       router.push("/materias");
     } catch {
       setError("Error al guardar la materia. Intentá de nuevo.");
@@ -125,6 +162,44 @@ function NuevaMateriaContent() {
                     required placeholder="Ej: Álgebra Lineal" style={inputStyle}
                     onFocus={(e) => (e.target.style.borderColor = "var(--color-primary)")}
                     onBlur={(e) => (e.target.style.borderColor = "var(--color-card-border)")} />
+
+                  {coincidencias.length > 0 && (
+                    <div className="mt-2 p-3 rounded-xl" style={{ background: "var(--background-alt)" }}>
+                      <p className="text-xs font-semibold mb-2 flex items-center gap-1.5"
+                        style={{ color: "var(--foreground-muted)" }}>
+                        <Users size={12} />
+                        Ya existe en {carreraPrincipal?.institucion}
+                      </p>
+                      <div className="space-y-1.5">
+                        {coincidencias.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setNombre(c.nombre_canonico);
+                              if (c.codigo) setCodigo(c.codigo);
+                              setCoincidencias([]);
+                            }}
+                            className="w-full text-left px-3 py-2 rounded-lg text-sm transition-all hover:opacity-80"
+                            style={{ background: "var(--color-card)", color: "var(--foreground)" }}
+                          >
+                            <span className="font-semibold">{c.nombre_canonico}</span>
+                            {c.codigo && (
+                              <span className="text-xs ml-1.5" style={{ color: "var(--foreground-subtle)" }}>
+                                ({c.codigo})
+                              </span>
+                            )}
+                            <span className="block text-xs mt-0.5" style={{ color: "var(--foreground-subtle)" }}>
+                              {c.cantidad_usuarios} {c.cantidad_usuarios === 1 ? "persona la tiene" : "personas la tienen"}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs mt-2" style={{ color: "var(--foreground-subtle)" }}>
+                        Usar el mismo nombre te conecta con los comentarios de esa materia.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">

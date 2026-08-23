@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { esDonanteActivo, puedeUsarWhatsApp, planEfectivo } from "./planes";
+import { esDonanteActivo, planEfectivo } from "./planes";
 import { Suscripcion } from "@/types";
 
 const AHORA = new Date("2026-08-15T12:00:00.000Z");
@@ -32,14 +32,6 @@ describe("esDonanteActivo", () => {
 
   it("es false si la fecha de vencimiento no se puede parsear", () => {
     expect(esDonanteActivo(donante("no-es-una-fecha"), AHORA)).toBe(false);
-  });
-});
-
-describe("puedeUsarWhatsApp", () => {
-  it("solo lo habilita para donantes activos", () => {
-    expect(puedeUsarWhatsApp(donante("2026-09-15T12:00:00.000Z"), AHORA)).toBe(true);
-    expect(puedeUsarWhatsApp(donante("2026-07-15T12:00:00.000Z"), AHORA)).toBe(false);
-    expect(puedeUsarWhatsApp(undefined, AHORA)).toBe(false);
   });
 });
 

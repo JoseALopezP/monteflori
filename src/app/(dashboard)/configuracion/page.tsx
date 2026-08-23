@@ -6,15 +6,15 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
-  Settings, Phone, Calendar, Moon, Sun, Monitor,
-  Check, ExternalLink, Bell, BellOff, Shield, Loader2, Heart,
+  Settings, Calendar, Moon, Sun, Monitor,
+  Check, ExternalLink, Shield, Loader2, Heart,
   AlertTriangle, RefreshCw, X
 } from "lucide-react";
 import { esDonanteActivo } from "@/lib/planes";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
-import { getPerfilUsuario, updateConfiguracion } from "@/lib/firestore";
+import { getPerfilUsuario } from "@/lib/firestore";
 import { sincronizarCalendar, desconectarCalendar } from "@/lib/calendarCliente";
 import { Usuario, ErrorCalendar } from "@/types";
 
@@ -23,10 +23,6 @@ function ConfiguracionContent() {
   const { tema, setTema } = useTheme();
 
   const [perfil, setPerfil] = useState<Usuario | null>(null);
-  const [telefono, setTelefono] = useState("");
-  const [notifWA, setNotifWA] = useState(true);
-  const [guardando, setGuardando] = useState(false);
-  const [guardadoOk, setGuardadoOk] = useState(false);
   const [calendarConectado, setCalendarConectado] = useState(false);
   const [conectandoCalendar, setConectandoCalendar] = useState(false);
   const [errorCalendar, setErrorCalendar] = useState<string | null>(null);
@@ -41,8 +37,6 @@ function ConfiguracionContent() {
     const p = await getPerfilUsuario(user.uid);
     if (!p) return;
     setPerfil(p);
-    setTelefono(p.configuracion.telefono_whatsapp ?? "");
-    setNotifWA(p.configuracion.notificaciones_whatsapp ?? true);
     setCalendarConectado(!!p.credenciales_externas?.google_calendar_refresh_token);
     setErrorSync(p.uso?.calendar_ultimo_error ?? null);
   }
@@ -85,21 +79,6 @@ function ConfiguracionContent() {
       }
     } finally {
       setDesconectando(false);
-    }
-  }
-
-  async function guardarConfiguracion() {
-    if (!user?.uid) return;
-    setGuardando(true);
-    try {
-      await updateConfiguracion(user.uid, {
-        telefono_whatsapp: telefono.trim() || undefined,
-        notificaciones_whatsapp: notifWA,
-      });
-      setGuardadoOk(true);
-      setTimeout(() => setGuardadoOk(false), 2500);
-    } finally {
-      setGuardando(false);
     }
   }
 
@@ -192,59 +171,6 @@ function ConfiguracionContent() {
                   {label}
                 </button>
               ))}
-            </div>
-          </div>
-
-          {/* WhatsApp */}
-          <div className="rounded-2xl p-5 border" style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
-            <h2 className="font-bold text-base mb-1 flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-              <Phone size={16} style={{ color: "var(--color-success)" }} />
-              WhatsApp Bot
-            </h2>
-            <p className="text-sm mb-4" style={{ color: "var(--foreground-muted)" }}>
-              El bot te enviará recordatorios y podrás hacer consultas sobre tus materias.
-            </p>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>
-                  Tu número de WhatsApp
-                </label>
-                <input
-                  id="config-telefono"
-                  type="tel"
-                  value={telefono}
-                  onChange={(e) => setTelefono(e.target.value)}
-                  placeholder="Ej: 5492641234567 (sin + ni espacios)"
-                  style={inputStyle}
-                  onFocus={(e) => (e.target.style.borderColor = "var(--color-primary)")}
-                  onBlur={(e) => (e.target.style.borderColor = "var(--color-card-border)")} />
-                <p className="text-xs mt-1" style={{ color: "var(--foreground-subtle)" }}>
-                  Incluí el código de país. Argentina: 549 + sin el 0 del área
-                </p>
-              </div>
-
-              <div className="flex items-center justify-between p-3 rounded-xl"
-                style={{ background: "var(--background-alt)" }}>
-                <div className="flex items-center gap-3">
-                  {notifWA ? <Bell size={16} style={{ color: "var(--color-primary)" }} /> : <BellOff size={16} style={{ color: "var(--foreground-subtle)" }} />}
-                  <div>
-                    <p className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>Notificaciones proactivas</p>
-                    <p className="text-xs" style={{ color: "var(--foreground-muted)" }}>Recordatorios de parciales y finales</p>
-                  </div>
-                </div>
-                <button
-                  id="toggle-notif-wa"
-                  onClick={() => setNotifWA(!notifWA)}
-                  className="w-12 h-6 rounded-full transition-all relative"
-                  style={{ background: notifWA ? "var(--color-primary)" : "var(--color-card-border)" }}
-                  aria-label={notifWA ? "Desactivar notificaciones" : "Activar notificaciones"}
-                  role="switch"
-                  aria-checked={notifWA}>
-                  <span className="absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all"
-                    style={{ left: notifWA ? "calc(100% - 1.25rem)" : "0.25rem" }} />
-                </button>
-              </div>
             </div>
           </div>
 
@@ -379,24 +305,6 @@ function ConfiguracionContent() {
               </>
             )}
           </div>
-
-          {/* Guardar */}
-          <button
-            id="btn-guardar-config"
-            onClick={guardarConfiguracion}
-            disabled={guardando}
-            className="w-full py-3 rounded-xl font-bold text-sm transition-all hover:opacity-90 active:scale-95 flex items-center justify-center gap-2"
-            style={{
-              background: guardadoOk ? "var(--color-success)" : "var(--color-primary)",
-              color: "white",
-              boxShadow: "var(--shadow-md)",
-            }}>
-            {guardando
-              ? <><Loader2 size={16} className="animate-spin" /> Guardando...</>
-              : guardadoOk
-              ? <><Check size={16} /> ¡Guardado!</>
-              : "Guardar configuración"}
-          </button>
 
         </div>
       </div>

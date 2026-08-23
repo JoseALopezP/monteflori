@@ -39,6 +39,50 @@ Junto con las de Firestore, hay que republicar las de Storage. **Había un aguje
 
 ---
 
+### 1.c Índices de Firestore para el catálogo y los comentarios
+
+**Qué rompe si no lo hacés**: la búsqueda de "esta materia ya existe" no devuelve nada y los comentarios no cargan. El resto de la app anda igual.
+
+Firestore necesita índices compuestos para estas consultas. La forma más fácil de crearlos:
+
+1. Usá la app normalmente (creá una materia, entrá a una que tenga comentarios).
+2. Abrí la consola del navegador (F12). Cuando falte un índice, Firebase imprime un error con un **link directo** para crearlo.
+3. Clic en el link → **Crear índice**. Tarda unos minutos en construirse.
+
+Los que van a hacer falta:
+
+| Colección | Campos |
+|---|---|
+| `catalogo_materias` | `institucion_id` (asc) + `nombre_normalizado` (asc) |
+| `comentarios` (grupo de colecciones) | `oculto` (asc) + `puntaje` (desc) |
+| `comentarios` (grupo de colecciones) | `reportes` (desc) — para el panel de moderación |
+
+> Los dos de `comentarios` son de tipo **grupo de colecciones** (collection group), no de colección simple. Si los creás a mano en vez de por el link, elegí esa opción.
+
+---
+
+### 1.d Configurar quién modera (`ADMIN_UIDS`)
+
+**Qué rompe si no lo hacés**: el panel de moderación en `/admin/moderacion` responde "no encontrado" para todos, incluido vos. Los comentarios reportados se siguen ocultando solos al llegar a 3 reportes, pero no vas a poder revisarlos ni restaurarlos.
+
+1. Necesitás tu UID de Firebase. Entrá a la app, abrí la consola (F12) y ejecutá:
+   ```js
+   firebase.auth().currentUser.uid
+   ```
+   Si eso no funciona, buscalo en Firebase Console → **Authentication** → tu usuario → columna "Identificador de usuario".
+
+2. En Vercel → **Settings → Environment Variables**:
+
+   | Key | Value |
+   |---|---|
+   | `ADMIN_UIDS` | Tu UID. Si son varios, separados por coma sin espacios. |
+
+3. Redeployá.
+
+> A propósito no es un campo en la base: si lo fuera, sería una superficie más para proteger, y un error en las reglas dejaría que alguien se haga admin solo. Con la variable de entorno, cambiar quién modera requiere entrar a Vercel.
+
+---
+
 ### 2. Generar `OAUTH_STATE_SECRET`
 
 **Qué rompe si no lo hacés**: conectar Google Calendar tira error. La app funciona igual en todo lo demás.
@@ -334,6 +378,7 @@ Checklist completa de lo que la app usa hoy. Todo lo que esté vacío en Vercel 
 | `NEXT_PUBLIC_APP_URL` | **Sí** | Redirects de OAuth y pagos |
 | `NEXT_PUBLIC_EXTENSION_ID` | Sí, si usás la extensión | Puente con la extensión |
 | `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | No, pero recomendada | Firebase App Check (ver 6.b) |
+| `ADMIN_UIDS` | Sí, para moderar comentarios | Panel de moderación (ver 1.d) |
 | `OAUTH_STATE_SECRET` | Sí, si usás Calendar | Seguridad del OAuth |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Sí, si usás Calendar | Google Calendar |
 | `MERCADOPAGO_ACCESS_TOKEN` / `MERCADOPAGO_WEBHOOK_SECRET` | Sí, si querés donaciones | Donaciones |

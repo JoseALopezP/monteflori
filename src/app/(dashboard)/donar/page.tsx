@@ -10,18 +10,14 @@ import { useAuthContext } from "@/components/auth/AuthProvider";
 import { usePerfil } from "@/hooks/usePerfil";
 import { DONACION_MINIMA_ARS, esDonanteActivo } from "@/lib/planes";
 
-const BENEFICIOS_GRATIS = [
-  "Materias, notas y fórmula de cálculo — sin límite",
-  "Extensión de SIU Guaraní — sincronizaciones ilimitadas",
+// Monteflori no tiene funciones pagas: donar no desbloquea nada. Es apoyo al
+// proyecto, no una suscripción. Lo que se lista es lo que la app hace para
+// todos, para que quede claro qué se está bancando.
+const LO_QUE_HACE = [
+  "Materias, notas y constructor de fórmula de cálculo",
+  "Sincronización con SIU Guaraní desde la extensión",
   "Plan de ruta, correlativas y gráficos",
-  "Google Calendar: 1 sincronización por mes",
-];
-
-const BENEFICIOS_DONANTE = [
-  "Todo lo del nivel gratis",
-  "Google Calendar: sincronizaciones ilimitadas",
-  "Bot de WhatsApp (cuando se habilite)",
-  "Bancás los costos de servidor y de las APIs",
+  "Fechas de parciales y finales en tu Google Calendar",
 ];
 
 export default function DonarPage() {
@@ -70,8 +66,9 @@ export default function DonarPage() {
             Bancá Monteflori
           </h1>
           <p className="text-sm mt-1" style={{ color: "var(--foreground-muted)" }}>
-            Monteflori es gratis y lo va a seguir siendo. Las donaciones cubren los costos
-            de servidor y de las APIs que usa (como Google Calendar), que se pagan por uso.
+            Monteflori es gratis y lo va a seguir siendo. <strong>Donar no desbloquea
+            funciones</strong>: todo lo que hace la app está disponible para todos. Las
+            donaciones bancan lo que cuesta tenerla en pie — el dominio y el hosting.
           </p>
         </div>
 
@@ -89,11 +86,11 @@ export default function DonarPage() {
             <Sparkles size={18} style={{ color: "var(--estado-aprobada)" }} />
             <div>
               <p className="font-bold text-sm" style={{ color: "var(--estado-aprobada)" }}>
-                Ya sos donante — ¡gracias!
+                Estás bancando el proyecto — ¡gracias!
               </p>
               {perfil?.suscripcion?.donante_activo_hasta && (
                 <p className="text-xs mt-0.5" style={{ color: "var(--estado-aprobada)" }}>
-                  Tu nivel está activo hasta el{" "}
+                  Tu aporte está vigente hasta el{" "}
                   {new Date(perfil.suscripcion.donante_activo_hasta).toLocaleDateString("es-AR", {
                     day: "numeric", month: "long", year: "numeric",
                   })}
@@ -104,42 +101,22 @@ export default function DonarPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="rounded-2xl p-5 border" style={cardStyle}>
-            <h2 className="font-bold text-base" style={{ color: "var(--foreground)" }}>Gratis</h2>
-            <p className="text-2xl font-extrabold mt-1 mb-4" style={{ color: "var(--foreground)" }}>
-              $0
-            </p>
-            <ul className="space-y-2">
-              {BENEFICIOS_GRATIS.map((b) => (
-                <li key={b} className="flex items-start gap-2 text-sm" style={{ color: "var(--foreground-muted)" }}>
-                  <Check size={14} className="mt-0.5 flex-shrink-0" style={{ color: "var(--color-primary)" }} />
-                  {b}
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="rounded-2xl p-5 border-2" style={{ ...cardStyle, borderColor: "var(--color-primary)" }}>
-            <h2 className="font-bold text-base flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-              <Heart size={15} style={{ color: "var(--color-alert)" }} /> Donante
-            </h2>
-            <p className="text-2xl font-extrabold mt-1" style={{ color: "var(--color-primary)" }}>
-              desde ${DONACION_MINIMA_ARS.toLocaleString("es-AR")}
-              <span className="text-sm font-medium" style={{ color: "var(--foreground-muted)" }}> /mes</span>
-            </p>
-            <p className="text-xs mb-4 mt-0.5" style={{ color: "var(--foreground-subtle)" }}>
-              Podés cancelar cuando quieras
-            </p>
-            <ul className="space-y-2">
-              {BENEFICIOS_DONANTE.map((b) => (
-                <li key={b} className="flex items-start gap-2 text-sm" style={{ color: "var(--foreground-muted)" }}>
-                  <Check size={14} className="mt-0.5 flex-shrink-0" style={{ color: "var(--color-primary)" }} />
-                  {b}
-                </li>
-              ))}
-            </ul>
-          </div>
+        <div className="rounded-2xl p-5 border" style={cardStyle}>
+          <h2 className="font-bold text-base mb-3" style={{ color: "var(--foreground)" }}>
+            Lo que estás bancando
+          </h2>
+          <ul className="space-y-2">
+            {LO_QUE_HACE.map((b) => (
+              <li key={b} className="flex items-start gap-2 text-sm" style={{ color: "var(--foreground-muted)" }}>
+                <Check size={14} className="mt-0.5 flex-shrink-0" style={{ color: "var(--color-primary)" }} />
+                {b}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs mt-4 pt-3 border-t" style={{ color: "var(--foreground-subtle)", borderColor: "var(--color-card-border)" }}>
+            Todo esto es gratis para cualquiera, dones o no. Podés cancelar cuando quieras
+            desde Mercado Pago.
+          </p>
         </div>
 
         {!yaEsDonante && (

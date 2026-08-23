@@ -27,18 +27,17 @@ export function esDonanteActivo(
   return vence > ahora.getTime();
 }
 
-// Google Calendar NO está limitado por plan. Su API es gratuita para nosotros
-// y la sincronización se dispara por evento (no hay proceso en segundo plano),
-// así que limitarla sería cobrar por algo que no cuesta mantener. Lo único que
-// la acota es el rate limiting técnico de la ruta, que está para frenar abuso.
-
-/** El bot de WhatsApp es exclusivo de donantes. */
-export function puedeUsarWhatsApp(
-  suscripcion: Suscripcion | undefined,
-  ahora: Date = new Date()
-): boolean {
-  return esDonanteActivo(suscripcion, ahora);
-}
+// NO hay funciones detrás de la donación. Donar no desbloquea nada: es apoyo al
+// proyecto. `esDonanteActivo` se usa solo para mostrar el estado y agradecer.
+//
+// Google Calendar tampoco está limitado: su API es gratuita para nosotros y la
+// sincronización se dispara por evento (sin proceso en segundo plano), así que
+// cobrarla sería cobrar por algo que no cuesta mantener. Lo único que la acota
+// es el rate limiting técnico de la ruta, que está para frenar abuso.
+//
+// WhatsApp era lo único gateado y quedó fuera de servicio hasta resolver el
+// financiamiento (cuesta por mensaje y desde el 1/10/2026 también las
+// respuestas). Ver ESTRATEGIA.md.
 
 /** Plan efectivo del usuario, ya considerando vencimientos. */
 export function planEfectivo(

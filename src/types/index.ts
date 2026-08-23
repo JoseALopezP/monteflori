@@ -105,6 +105,12 @@ export interface Materia {
   cuatrimestre_plan?: number;
   /** Créditos o unidades de carga (para porcentaje de avance ponderado) */
   creditos?: number;
+  /**
+   * Entrada del catálogo compartido a la que corresponde esta materia. Todo lo
+   * de acá adentro (notas, estado, fórmula) sigue siendo privado del usuario;
+   * el vínculo solo sirve para encontrar los comentarios de la materia.
+   */
+  catalogo_id?: string;
 }
 
 // ── Carrera ────────────────────────────────────────────────
@@ -157,6 +163,62 @@ export interface CredencialesExternas {
   whatsapp_verificado?: boolean;
 }
 
+// ── Catálogo compartido de materias ────────────────────────
+
+/**
+ * Entrada del catálogo público. Es el ancla que permite que dos estudiantes de
+ * la misma facultad estén mirando "la misma" materia y compartan comentarios.
+ *
+ * Solo lo escribe el servidor: si el cliente pudiera crear entradas, el
+ * catálogo se llenaría de basura y duplicados.
+ */
+export interface MateriaCatalogo {
+  id: string;
+  /** Clave derivada del hostname o de la institución de la carrera: "unsj", "uade". */
+  institucion_id: string;
+  institucion_nombre: string;
+  /** Código del plan (SIU da "F12400"). Es la mejor clave de deduplicación. */
+  codigo?: string | null;
+  nombre_canonico: string;
+  /** Para buscar y deduplicar. */
+  nombre_normalizado: string;
+  /** Nombres de carreras (normalizados) donde aparece esta materia. */
+  carreras: string[];
+  /** Cuántos usuarios la tienen vinculada — señal de que la entrada es real. */
+  cantidad_usuarios: number;
+  comentarios_count: number;
+  creado_en: string;
+}
+
+/** Comentario de un estudiante sobre una materia del catálogo. */
+export interface Comentario {
+  id: string;
+  /** Interno, para moderación. Nunca se muestra en la UI. */
+  autor_uid: string;
+  /** Lo que se ve: el alias del perfil, no el nombre real. */
+  autor_alias: string;
+  texto: string;
+  /** Links permitidos (dominios en whitelist). Máximo 2. */
+  links: string[];
+  /** Desde qué carrera se comentó, si aplica. */
+  carrera_contexto?: string | null;
+  /** ISO — fecha y hora del comentario. */
+  creado_en: string;
+  votos_positivos: number;
+  votos_negativos: number;
+  /** positivos - negativos; se usa para ordenar. */
+  puntaje: number;
+  reportes: number;
+  /** true cuando acumuló suficientes reportes o lo ocultó un admin. */
+  oculto: boolean;
+}
+
+/** Voto de un usuario sobre un comentario. Un documento por usuario. */
+export interface VotoComentario {
+  valor: 1 | -1;
+  creado_en: string;
+}
+
 // ── Niveles / donaciones ───────────────────────────────────
 
 export type Plan = "gratis" | "donante";
@@ -198,6 +260,16 @@ export interface Uso {
   ultima_reconciliacion_calendar?: string;
   /** Último error de sincronización. Se borra cuando una sincronización sale bien. */
   calendar_ultimo_error?: ErrorCalendar;
+
+  // Control de spam en comentarios. Vive acá (server-only) y no en memoria del
+  // servidor porque en serverless cada instancia tiene la suya y el límite se
+  // saltearía solo.
+  /** ISO — cuándo comentó por última vez, para el cooldown. */
+  ultimo_comentario_en?: string;
+  /** Cuántos comentarios lleva hoy. */
+  comentarios_hoy?: number;
+  /** "YYYY-MM-DD" del contador de arriba; si cambia el día, se reinicia. */
+  dia_comentarios?: string;
 }
 
 export interface Usuario {

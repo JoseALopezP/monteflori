@@ -266,7 +266,12 @@ export async function importarMateriasScrapeadas(
   carreraId: string | null,
   materiasScrapeadas: MateriaScrapeada[],
   materiasExistentes: Materia[]
-): Promise<{ creadas: number; actualizadas: number }> {
+): Promise<{
+  creadas: number;
+  actualizadas: number;
+  /** IDs resultantes, para poder vincularlas después con el catálogo compartido. */
+  importadas: { id: string; nombre: string; codigo: string | null }[];
+}> {
   const existentesPorNombre = new Map<string, Materia>();
   materiasExistentes.forEach((m) => existentesPorNombre.set(normalizarNombre(m.nombre), m));
 
@@ -352,7 +357,14 @@ export async function importarMateriasScrapeadas(
     }
   }
 
-  return { creadas, actualizadas };
+  const importadas = materiasScrapeadas
+    .map((ms) => {
+      const id = idPorNombre.get(normalizarNombre(ms.nombre));
+      return id ? { id, nombre: ms.nombre, codigo: ms.codigo_interno ?? null } : null;
+    })
+    .filter((x): x is { id: string; nombre: string; codigo: string | null } => x !== null);
+
+  return { creadas, actualizadas, importadas };
 }
 
 export function buildPhoneQuery(telefono: string) {

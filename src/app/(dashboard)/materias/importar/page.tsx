@@ -15,6 +15,7 @@ import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useCarreraActivaContext } from "@/components/dashboard/CarreraActivaProvider";
 import { addCarrera, importarMateriasScrapeadas } from "@/lib/firestore";
 import { sincronizarCalendar } from "@/lib/calendarCliente";
+import { vincularConCatalogo, MateriaAVincular } from "@/lib/catalogoCliente";
 import {
   extensionConfigurada, pingExtension, obtenerUltimaSincronizacion,
   limpiarUltimaSincronizacion, ScrapeData, MateriaScrapeada,
@@ -108,6 +109,7 @@ export default function ImportarPage() {
       let creadasTotal = 0;
       let actualizadasTotal = 0;
       let seCrearonCarreras = false;
+      const paraCatalogo: MateriaAVincular[] = [];
 
       for (const seccion of secciones) {
         let idCarreraFinal: string | null = null;
@@ -135,10 +137,27 @@ export default function ImportarPage() {
         const res = await importarMateriasScrapeadas(user.uid, idCarreraFinal, seleccionadas, materiasExistentes);
         creadasTotal += res.creadas;
         actualizadasTotal += res.actualizadas;
+
+        res.importadas.forEach((m) =>
+          paraCatalogo.push({
+            materia_id: m.id,
+            nombre: m.nombre,
+            codigo: m.codigo,
+            carrera: seccion.nombreOriginal,
+          })
+        );
       }
 
       if (seCrearonCarreras) refetchCarreras();
       await limpiarUltimaSincronizacion();
+
+      // Vincular con el catálogo compartido. El código que trae SIU es la mejor
+      // clave de deduplicación que tenemos, así que acá no hace falta preguntar
+      // nada: dos personas de la misma facultad caen en la misma entrada.
+      if (user && scrapeData?.universidad) {
+        await vincularConCatalogo(user, scrapeData.universidad, paraCatalogo);
+      }
+
       // La importación puede traer fechas nuevas: que lleguen al calendario
       // sin esperar al repaso del día siguiente.
       if (user) sincronizarCalendar(user);

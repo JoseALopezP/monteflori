@@ -26,6 +26,7 @@ import {
 import { calcularResultadoMateria, evaluacionRecuperadaPor, resumenFormula } from "@/lib/calculo-notas";
 import { AgregarNotaModal } from "@/components/notas/AgregarNotaModal";
 import { sincronizarCalendar } from "@/lib/calendarCliente";
+import { Comentarios } from "@/components/comentarios/Comentarios";
 import { ConstructorNota } from "@/components/notas/ConstructorNota";
 import { Materia, Evaluacion, FechaImportante, ConfiguracionNota } from "@/types";
 import { format, parseISO } from "date-fns";
@@ -503,6 +504,16 @@ function MateriaDetalleContent({ params }: PageParams) {
             </div>
           )}
         </div>
+
+        {/* Comentarios: solo si la materia está vinculada al catálogo compartido */}
+        {materia.catalogo_id && (
+          <Comentarios
+            catalogoId={materia.catalogo_id}
+            carreraContexto={
+              carreras.find((c) => materia.carreras_vinculadas?.includes(c.id))?.nombre ?? null
+            }
+          />
+        )}
 
       </div>
 
