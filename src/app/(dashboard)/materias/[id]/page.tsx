@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   BookOpen, Calendar, Plus, Trash2, Edit2, Clock, CheckCircle,
-  AlertCircle, Star, Lock, Award, ChevronLeft, CalendarPlus, Loader2, Settings2
+  AlertCircle, Star, Lock, Award, ChevronLeft, Loader2, Settings2
 } from "lucide-react";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useAuthContext } from "@/components/auth/AuthProvider";
@@ -25,6 +25,7 @@ import {
 } from "@/lib/firestore";
 import { calcularResultadoMateria, evaluacionRecuperadaPor, resumenFormula } from "@/lib/calculo-notas";
 import { AgregarNotaModal } from "@/components/notas/AgregarNotaModal";
+import { sincronizarCalendar } from "@/lib/calendarCliente";
 import { ConstructorNota } from "@/components/notas/ConstructorNota";
 import { Materia, Evaluacion, FechaImportante, ConfiguracionNota } from "@/types";
 import { format, parseISO } from "date-fns";
@@ -53,7 +54,6 @@ function MateriaDetalleContent({ params }: PageParams) {
   const [tipoFecha, setTipoFecha] = useState<FechaImportante["tipo"]>("parcial");
   const [fechaStr, setFechaStr] = useState("");
   const [guardandoFecha, setGuardandoFecha] = useState(false);
-  const [sincronizandoCalendar, setSincronizandoCalendar] = useState<string | null>(null);
 
   // Edición inline de notas
   const [editandoEvalId, setEditandoEvalId] = useState<string | null>(null);
@@ -129,6 +129,9 @@ function MateriaDetalleContent({ params }: PageParams) {
       setNombreFecha("");
       setFechaStr("");
       setShowFormFecha(false);
+      // Sin await: que Google responda no debería demorar el formulario. Si
+      // falla, el servidor lo registra y el aviso aparece en el dashboard.
+      if (user) sincronizarCalendar(user);
     } finally {
       setGuardandoFecha(false);
     }
@@ -137,45 +140,8 @@ function MateriaDetalleContent({ params }: PageParams) {
   async function handleEliminarFecha(fechaId: string) {
     if (!user?.uid || !materia) return;
     await deleteFechaImportante(user.uid, materia.id, fechaId, materia.fechas_importantes);
-  }
-
-  async function handleSincronizarCalendar(fechaObj: FechaImportante) {
-    if (!user?.uid || !materia) return;
-    setSincronizandoCalendar(fechaObj.id);
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch("/api/calendar/sync", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          nombre: `${materia.nombre} — ${fechaObj.nombre}`,
-          fecha: fechaObj.fecha,
-          descripcion: `Materia: ${materia.nombre}\nTipo: ${fechaObj.tipo}`,
-        }),
-      });
-
-      if (res.ok) {
-        alert("¡Evento agregado a tu Google Calendar!");
-      } else {
-        const err = await res.json();
-        if (err.motivo === "limite_plan") {
-          // Se agotó el cupo mensual del nivel gratis: ofrecemos la salida en vez
-          // de mostrar un error seco.
-          if (confirm(`${err.error}\n\n¿Querés ver cómo bancar el proyecto?`)) {
-            router.push("/donar");
-          }
-        } else {
-          alert(err.error ?? "No se pudo sincronizar con Google Calendar");
-        }
-      }
-    } catch {
-      alert("Error al conectar con Google Calendar");
-    } finally {
-      setSincronizandoCalendar(null);
-    }
+    // La sincronización detecta la fecha faltante y borra su evento de Google.
+    if (user) sincronizarCalendar(user);
   }
 
   async function handleCambiarEstado(nuevoEstado: Materia["estado"]) {
@@ -526,19 +492,6 @@ function MateriaDetalleContent({ params }: PageParams) {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleSincronizarCalendar(f)}
-                      disabled={sincronizandoCalendar === f.id}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all hover:opacity-80"
-                      style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)", color: "var(--foreground)" }}
-                      title="Sincronizar con Google Calendar">
-                      {sincronizandoCalendar === f.id ? (
-                        <Loader2 size={12} className="animate-spin" />
-                      ) : (
-                        <CalendarPlus size={12} style={{ color: "var(--color-secondary)" }} />
-                      )}
-                      <span className="hidden sm:inline">Calendar</span>
-                    </button>
                     <button onClick={() => handleEliminarFecha(f.id)}
                       className="p-1 rounded opacity-60 hover:opacity-100 transition-opacity"
                       style={{ color: "var(--color-alert)" }}>

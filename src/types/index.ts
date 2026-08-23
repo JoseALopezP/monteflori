@@ -173,10 +173,31 @@ export interface Suscripcion {
   mercadopago_preapproval_id?: string;
 }
 
-/** Contadores de uso de funciones limitadas en el nivel gratis. */
+/** Error de la última sincronización con Google Calendar, para poder avisarle al usuario. */
+export interface ErrorCalendar {
+  /** Mensaje ya redactado para mostrar en pantalla. */
+  mensaje: string;
+  /** ISO — cuándo ocurrió. */
+  fecha: string;
+  /** true si hace falta volver a conectar la cuenta (token revocado o vencido). */
+  requiere_reconectar: boolean;
+}
+
+/**
+ * Estado interno que solo escribe el servidor (está en camposDeServidor de las
+ * reglas de Firestore, así que el cliente no puede tocarlo).
+ */
 export interface Uso {
-  /** ISO — última sincronización con Google Calendar (límite: 1 por mes en gratis) */
-  ultima_sincronizacion_calendar?: string;
+  /**
+   * fechaId -> evento ya creado en Google Calendar. Es lo que permite que
+   * sincronizar sea idempotente: sin esto, cada sincronización crearía un
+   * evento duplicado.
+   */
+  calendar_eventos?: Record<string, { eventId: string; hash: string }>;
+  /** ISO — última reconciliación completa (la app hace una por día al abrirse). */
+  ultima_reconciliacion_calendar?: string;
+  /** Último error de sincronización. Se borra cuando una sincronización sale bien. */
+  calendar_ultimo_error?: ErrorCalendar;
 }
 
 export interface Usuario {

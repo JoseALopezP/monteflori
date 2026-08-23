@@ -81,7 +81,12 @@ Dos problemas:
 
 Hoy no está costando nada solo porque WhatsApp está pausado sin credenciales. En el momento en que se active, empieza a cobrar. **Es una mina enterrada.**
 
-### 🔴 4.2 Limitar Google Calendar contradice la regla de oro
+### ✅ 4.2 Limitar Google Calendar contradice la regla de oro — RESUELTO
+
+> **Resuelto**: se sacó el límite mensual. Calendar quedó gratis para todos y la
+> sincronización pasó a ser automática (por evento + repaso diario). Lo único
+> que la acota es el rate limiting técnico, que está para frenar abuso, no para
+> monetizar. Se mantiene el análisis original abajo como registro.
 
 El plan dice: *"cobrar lo que cuesta mantener, no lo que vale para el usuario"* y que el PRO cubre *"únicamente los costos reales de operar (no features core)"*.
 
@@ -218,7 +223,7 @@ La intuición es buena — evitar las tiendas ahorra plata y burocracia — pero
 
 ## 7. Decisiones pendientes
 
-- [ ] ¿Se saca el límite mensual de Google Calendar? (contradice la regla de oro — ver 4.2)
+- [x] ~~¿Se saca el límite mensual de Google Calendar?~~ Sí — sacado, y la sincronización ahora es automática.
 - [ ] ¿Se apaga o se limita el cron de WhatsApp antes de activar el bot? (fuga de plata — ver 4.1)
 - [ ] ¿Cafecito con link externo o Mercado Pago integrado + Vercel Pro? (ver 4.3)
 - [ ] ¿Telegram primero en vez de WhatsApp? (ver 4.4)

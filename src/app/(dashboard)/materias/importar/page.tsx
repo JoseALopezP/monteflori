@@ -14,6 +14,7 @@ import {
 import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useCarreraActivaContext } from "@/components/dashboard/CarreraActivaProvider";
 import { addCarrera, importarMateriasScrapeadas } from "@/lib/firestore";
+import { sincronizarCalendar } from "@/lib/calendarCliente";
 import {
   extensionConfigurada, pingExtension, obtenerUltimaSincronizacion,
   limpiarUltimaSincronizacion, ScrapeData, MateriaScrapeada,
@@ -138,6 +139,9 @@ export default function ImportarPage() {
 
       if (seCrearonCarreras) refetchCarreras();
       await limpiarUltimaSincronizacion();
+      // La importación puede traer fechas nuevas: que lleguen al calendario
+      // sin esperar al repaso del día siguiente.
+      if (user) sincronizarCalendar(user);
       setResultado({ creadas: creadasTotal, actualizadas: actualizadasTotal });
       setEstado("hecho");
     } catch {

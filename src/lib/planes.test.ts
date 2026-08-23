@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  esDonanteActivo,
-  puedeSincronizarCalendar,
-  puedeUsarWhatsApp,
-  planEfectivo,
-} from "./planes";
+import { esDonanteActivo, puedeUsarWhatsApp, planEfectivo } from "./planes";
 import { Suscripcion } from "@/types";
 
 const AHORA = new Date("2026-08-15T12:00:00.000Z");
@@ -37,68 +32,6 @@ describe("esDonanteActivo", () => {
 
   it("es false si la fecha de vencimiento no se puede parsear", () => {
     expect(esDonanteActivo(donante("no-es-una-fecha"), AHORA)).toBe(false);
-  });
-});
-
-describe("puedeSincronizarCalendar", () => {
-  it("permite siempre a un donante activo, aunque ya haya sincronizado hoy", () => {
-    const r = puedeSincronizarCalendar(
-      donante("2026-09-15T12:00:00.000Z"),
-      { ultima_sincronizacion_calendar: "2026-08-15T09:00:00.000Z" },
-      AHORA
-    );
-    expect(r.permitido).toBe(true);
-  });
-
-  it("permite en gratis si nunca sincronizó", () => {
-    expect(puedeSincronizarCalendar(undefined, undefined, AHORA).permitido).toBe(true);
-  });
-
-  it("bloquea en gratis si ya sincronizó este mes", () => {
-    const r = puedeSincronizarCalendar(
-      undefined,
-      { ultima_sincronizacion_calendar: "2026-08-02T09:00:00.000Z" },
-      AHORA
-    );
-    expect(r.permitido).toBe(false);
-    expect(r.motivo).toMatch(/donación/i);
-  });
-
-  it("vuelve a permitir en gratis al cambiar de mes", () => {
-    const r = puedeSincronizarCalendar(
-      undefined,
-      { ultima_sincronizacion_calendar: "2026-07-31T23:00:00.000Z" },
-      AHORA
-    );
-    expect(r.permitido).toBe(true);
-  });
-
-  it("distingue el mismo mes de años distintos", () => {
-    // Agosto del año pasado no consume el cupo de agosto de este año.
-    const r = puedeSincronizarCalendar(
-      undefined,
-      { ultima_sincronizacion_calendar: "2025-08-10T09:00:00.000Z" },
-      AHORA
-    );
-    expect(r.permitido).toBe(true);
-  });
-
-  it("no bloquea si la fecha guardada está corrupta", () => {
-    const r = puedeSincronizarCalendar(
-      undefined,
-      { ultima_sincronizacion_calendar: "cualquier cosa" },
-      AHORA
-    );
-    expect(r.permitido).toBe(true);
-  });
-
-  it("bloquea a un ex-donante con la donación vencida que ya usó su cupo", () => {
-    const r = puedeSincronizarCalendar(
-      donante("2026-07-01T12:00:00.000Z"),
-      { ultima_sincronizacion_calendar: "2026-08-05T09:00:00.000Z" },
-      AHORA
-    );
-    expect(r.permitido).toBe(false);
   });
 });
 

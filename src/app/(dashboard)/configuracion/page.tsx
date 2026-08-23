@@ -7,14 +7,16 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Settings, Phone, Calendar, Moon, Sun, Monitor,
-  Check, ExternalLink, Bell, BellOff, Shield, Loader2, Heart
+  Check, ExternalLink, Bell, BellOff, Shield, Loader2, Heart,
+  AlertTriangle, RefreshCw, X
 } from "lucide-react";
 import { esDonanteActivo } from "@/lib/planes";
 import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { getPerfilUsuario, updateConfiguracion } from "@/lib/firestore";
-import { Usuario } from "@/types";
+import { sincronizarCalendar, desconectarCalendar } from "@/lib/calendarCliente";
+import { Usuario, ErrorCalendar } from "@/types";
 
 function ConfiguracionContent() {
   const { user } = useAuthContext();
@@ -28,20 +30,63 @@ function ConfiguracionContent() {
   const [calendarConectado, setCalendarConectado] = useState(false);
   const [conectandoCalendar, setConectandoCalendar] = useState(false);
   const [errorCalendar, setErrorCalendar] = useState<string | null>(null);
+  const [errorSync, setErrorSync] = useState<ErrorCalendar | null>(null);
+  const [sincronizando, setSincronizando] = useState(false);
+  const [desconectando, setDesconectando] = useState(false);
 
   const esDonante = esDonanteActivo(perfil?.suscripcion);
 
-  useEffect(() => {
+  async function cargarPerfil() {
     if (!user?.uid) return;
-    getPerfilUsuario(user.uid).then((p) => {
-      if (p) {
-        setPerfil(p);
-        setTelefono(p.configuracion.telefono_whatsapp ?? "");
-        setNotifWA(p.configuracion.notificaciones_whatsapp ?? true);
-        setCalendarConectado(!!p.credenciales_externas?.google_calendar_refresh_token);
-      }
-    });
+    const p = await getPerfilUsuario(user.uid);
+    if (!p) return;
+    setPerfil(p);
+    setTelefono(p.configuracion.telefono_whatsapp ?? "");
+    setNotifWA(p.configuracion.notificaciones_whatsapp ?? true);
+    setCalendarConectado(!!p.credenciales_externas?.google_calendar_refresh_token);
+    setErrorSync(p.uso?.calendar_ultimo_error ?? null);
+  }
+
+  useEffect(() => {
+    cargarPerfil();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  async function reintentarSync() {
+    if (!user) return;
+    setSincronizando(true);
+    try {
+      await sincronizarCalendar(user, { reconciliacion: true });
+      // Recarga para reflejar si el error se resolvió o sigue.
+      await cargarPerfil();
+    } finally {
+      setSincronizando(false);
+    }
+  }
+
+  async function darDeBajaCalendar() {
+    if (!user) return;
+    if (
+      !confirm(
+        "¿Dar de baja la sincronización con Google Calendar?\n\n" +
+          "Los eventos que ya se crearon quedan en tu calendario; podés borrarlos vos si querés."
+      )
+    ) {
+      return;
+    }
+    setDesconectando(true);
+    try {
+      const ok = await desconectarCalendar(user);
+      if (ok) {
+        setCalendarConectado(false);
+        setErrorSync(null);
+      } else {
+        setErrorCalendar("No se pudo dar de baja. Intentá de nuevo.");
+      }
+    } finally {
+      setDesconectando(false);
+    }
+  }
 
   async function guardarConfiguracion() {
     if (!user?.uid) return;
@@ -248,17 +293,70 @@ function ConfiguracionContent() {
               Google Calendar
             </h2>
             <p className="text-sm mb-4" style={{ color: "var(--foreground-muted)" }}>
-              Sincronizá automáticamente tus fechas de parciales y finales con tu calendario de Google.
-              {!esDonante && " En el nivel gratis podés sincronizar una vez por mes."}
+              Tus fechas de parciales y finales se sincronizan solas con tu calendario de Google:
+              cuando agregás, editás o borrás una, y con un repaso diario por las dudas. Es gratis
+              para todos.
             </p>
 
+            {errorSync && (
+              <div className="p-3 rounded-xl mb-3" style={{ background: "var(--estado-libre-bg)" }}>
+                <p className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--color-alert)" }}>
+                  <AlertTriangle size={14} />
+                  {errorSync.requiere_reconectar
+                    ? "Se cortó el permiso con Google"
+                    : "La última sincronización falló"}
+                </p>
+                <p className="text-xs mt-1" style={{ color: "var(--foreground-muted)" }}>
+                  {errorSync.mensaje}
+                </p>
+                <p className="text-xs mt-1" style={{ color: "var(--foreground-subtle)" }}>
+                  {new Date(errorSync.fecha).toLocaleString("es-AR")}
+                </p>
+              </div>
+            )}
+
             {calendarConectado ? (
-              <div className="flex items-center gap-3 p-3 rounded-xl"
-                style={{ background: "var(--estado-aprobada-bg)", border: "1px solid var(--estado-aprobada)" }}>
-                <Check size={16} style={{ color: "var(--estado-aprobada)" }} />
-                <span className="text-sm font-semibold" style={{ color: "var(--estado-aprobada)" }}>
-                  Google Calendar conectado
-                </span>
+              <div className="space-y-3">
+                {!errorSync && (
+                  <div className="flex items-center gap-3 p-3 rounded-xl"
+                    style={{ background: "var(--estado-aprobada-bg)", border: "1px solid var(--estado-aprobada)" }}>
+                    <Check size={16} style={{ color: "var(--estado-aprobada)" }} />
+                    <span className="text-sm font-semibold" style={{ color: "var(--estado-aprobada)" }}>
+                      Google Calendar conectado
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={reintentarSync}
+                    disabled={sincronizando}
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold border transition-all hover:opacity-80 disabled:opacity-50"
+                    style={{ borderColor: "var(--color-card-border)", color: "var(--foreground)" }}>
+                    {sincronizando ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                    {sincronizando ? "Sincronizando..." : "Sincronizar ahora"}
+                  </button>
+
+                  {errorSync?.requiere_reconectar && (
+                    <button
+                      onClick={conectarCalendar}
+                      disabled={conectandoCalendar}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-all hover:opacity-90 disabled:opacity-50"
+                      style={{ background: "var(--color-primary)", color: "white" }}>
+                      {conectandoCalendar ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
+                      Reconectar
+                    </button>
+                  )}
+
+                  <button
+                    onClick={darDeBajaCalendar}
+                    disabled={desconectando}
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold border transition-all hover:opacity-80 disabled:opacity-50"
+                    style={{ borderColor: "var(--color-card-border)", color: "var(--color-alert)" }}>
+                    {desconectando ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+                    Dar de baja
+                  </button>
+                </div>
               </div>
             ) : (
               <>

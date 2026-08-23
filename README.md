@@ -77,6 +77,15 @@ Detalles de implementación:
 
 Para habilitarlo hace falta crear una aplicación en [Mercado Pago Developers](https://www.mercadopago.com.ar/developers) y completar `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_WEBHOOK_SECRET`. Sin esas variables, la app funciona normal y el botón de donar devuelve un mensaje de "todavía no habilitado".
 
+## Sincronización con Google Calendar
+
+Las fechas importantes (parciales, finales, TPs) se reflejan solas en el calendario del usuario. Es gratis para todos: la API de Google no tiene costo para nosotros y no hay ningún proceso en segundo plano.
+
+- **Se dispara por evento**: al agregar, editar o borrar una fecha, y después de importar desde SIU. No hay cron — no se usa el token del usuario sin que esté presente.
+- **Un repaso por día**: al abrir la app, si no hubo reconciliación hoy, se hace una completa por si algo quedó sin sincronizar ([`AvisoCalendar`](src/components/dashboard/AvisoCalendar.tsx)).
+- **Solo actúa si algo cambió**: [`src/lib/calendar-sync.ts`](src/lib/calendar-sync.ts) compara el estado actual contra lo ya sincronizado (guardado en `uso.calendar_eventos`) y devuelve qué crear, actualizar y borrar. Si no cambió nada, no se llama a Google — ni siquiera se pide un access token. Esto es lo que evita los eventos duplicados: antes la ruta creaba uno nuevo en cada sincronización porque nunca guardaba el ID que Google devolvía.
+- **Si falla, se avisa**: el error queda registrado en el perfil y aparece un cartel en el dashboard que lleva a Configuración, donde se puede reintentar, reconectar o dar de baja.
+
 ## Defensas contra abuso
 
 Como Firebase cobra por uso, la app tiene varias barreras para que nadie pueda inflar la factura:

@@ -3,7 +3,7 @@
 // de si alguien puede usar una función se toma acá y se aplica en el servidor
 // (nunca solo en el cliente, que es manipulable).
 
-import { Usuario, Suscripcion, Uso } from "@/types";
+import { Usuario, Suscripcion } from "@/types";
 
 /** Donación mínima mensual (ARS) para contar como donante. */
 export const DONACION_MINIMA_ARS = 5000;
@@ -27,36 +27,10 @@ export function esDonanteActivo(
   return vence > ahora.getTime();
 }
 
-/**
- * En el nivel gratis se puede sincronizar con Google Calendar una vez por mes
- * calendario. Los donantes no tienen límite.
- */
-export function puedeSincronizarCalendar(
-  suscripcion: Suscripcion | undefined,
-  uso: Uso | undefined,
-  ahora: Date = new Date()
-): { permitido: boolean; motivo?: string } {
-  if (esDonanteActivo(suscripcion, ahora)) return { permitido: true };
-
-  const ultima = uso?.ultima_sincronizacion_calendar;
-  if (!ultima) return { permitido: true };
-
-  const fechaUltima = new Date(ultima);
-  if (Number.isNaN(fechaUltima.getTime())) return { permitido: true };
-
-  const mismoMes =
-    fechaUltima.getFullYear() === ahora.getFullYear() &&
-    fechaUltima.getMonth() === ahora.getMonth();
-
-  if (!mismoMes) return { permitido: true };
-
-  return {
-    permitido: false,
-    motivo:
-      "Ya usaste tu sincronización con Google Calendar de este mes. " +
-      "Con una donación tenés sincronizaciones ilimitadas.",
-  };
-}
+// Google Calendar NO está limitado por plan. Su API es gratuita para nosotros
+// y la sincronización se dispara por evento (no hay proceso en segundo plano),
+// así que limitarla sería cobrar por algo que no cuesta mantener. Lo único que
+// la acota es el rate limiting técnico de la ruta, que está para frenar abuso.
 
 /** El bot de WhatsApp es exclusivo de donantes. */
 export function puedeUsarWhatsApp(
