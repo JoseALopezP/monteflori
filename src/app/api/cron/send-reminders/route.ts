@@ -5,6 +5,8 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
+import { esDonanteActivo } from "@/lib/planes";
+import { Suscripcion } from "@/types";
 
 const WA_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN!;
 const WA_PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID!;
@@ -28,6 +30,7 @@ export async function GET(request: NextRequest) {
 
   let enviados = 0;
   let errores = 0;
+  let omitidosPorPlan = 0;
 
   try {
     // Obtener todos los usuarios con WhatsApp configurado y notificaciones activas
@@ -42,6 +45,16 @@ export async function GET(request: NextRequest) {
       const telefono = userData.configuracion?.telefono_whatsapp;
 
       if (!telefono) continue;
+
+      // Cada mensaje que sale de acá es un template iniciado por nosotros: la
+      // categoría más cara de WhatsApp, y que nunca fue gratis (lo gratuito era
+      // responder dentro de la ventana de 24 h, y desde el 1/10/2026 tampoco).
+      // Sin este chequeo, cualquiera que active las notificaciones nos genera
+      // un gasto diario. WhatsApp es exclusivo de donantes.
+      if (!esDonanteActivo(userData.suscripcion as Suscripcion | undefined, hoy)) {
+        omitidosPorPlan++;
+        continue;
+      }
 
       // Obtener materias del usuario
       const materiasSnap = await adminDb
@@ -135,8 +148,15 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    console.log(`[Cron] Recordatorios enviados: ${enviados}, errores: ${errores}`);
-    return NextResponse.json({ enviados, errores, timestamp: hoy.toISOString() });
+    console.log(
+      `[Cron] Recordatorios enviados: ${enviados}, errores: ${errores}, omitidos por plan: ${omitidosPorPlan}`
+    );
+    return NextResponse.json({
+      enviados,
+      errores,
+      omitidos_por_plan: omitidosPorPlan,
+      timestamp: hoy.toISOString(),
+    });
 
   } catch (error) {
     console.error("[Cron] Error fatal:", error);

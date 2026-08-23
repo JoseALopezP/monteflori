@@ -8,6 +8,8 @@ Incluye una extensión de navegador que lee tus materias y notas directamente de
 
 📋 **[PASOS-MANUALES.md](PASOS-MANUALES.md)** — configuración pendiente que requiere crear cuentas o generar credenciales (Firestore, Google, Mercado Pago, WhatsApp, Sentry), explicada paso a paso.
 
+📊 **[ESTRATEGIA.md](ESTRATEGIA.md)** — análisis de competencia, decisiones de producto pendientes e ideas de roadmap.
+
 ## Stack
 
 - **Next.js** (App Router) + **React** + **TypeScript** + **Tailwind CSS**
