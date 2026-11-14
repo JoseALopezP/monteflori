@@ -3,7 +3,7 @@
 // src/app/(dashboard)/error.tsx
 // Boundary de error del dashboard: a diferencia de global-error.tsx (que solo
 // se activa si falla el layout raíz entero), este atrapa errores de cualquier
-// página del dashboard y deja el navbar en pie, así se puede seguir navegando.
+// página del dashboard y deja la navegación en pie, así se puede seguir usando la app.
 
 import { useEffect } from "react";
 import Link from "next/link";
@@ -22,40 +22,20 @@ export default function DashboardError({
   }, [error]);
 
   return (
-    <main
-      className="min-h-[60vh] w-full flex items-center justify-center p-6 text-center"
-      style={{ background: "var(--background)" }}
-    >
-      <div className="flex flex-col items-center gap-4 max-w-sm">
-        <div
-          className="w-14 h-14 rounded-2xl flex items-center justify-center"
-          style={{ background: "var(--estado-libre-bg)" }}
-        >
-          <AlertCircle size={28} style={{ color: "var(--color-alert)" }} />
-        </div>
-        <div>
-          <h1 className="text-xl font-bold" style={{ color: "var(--foreground)" }}>
-            Algo salió mal
-          </h1>
-          <p className="text-sm mt-1.5" style={{ color: "var(--foreground-muted)" }}>
-            Ya nos enteramos del error. Tus datos están a salvo — probá de nuevo.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={reset}
-            className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all hover:opacity-90"
-            style={{ background: "var(--color-primary)", color: "white" }}
-          >
-            <RotateCcw size={14} /> Reintentar
+    <main className="page page-narrow">
+      <div className="flex flex-col items-center text-center py-16">
+        <span className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: "var(--estado-libre-bg)" }}>
+          <AlertCircle size={26} className="text-alert" />
+        </span>
+        <h1 className="font-display text-2xl font-semibold text-foreground mt-4">Algo salió mal</h1>
+        <p className="text-sm text-foreground-muted mt-2 max-w-sm">
+          Ya nos enteramos del error. Tus datos están a salvo: probá de nuevo.
+        </p>
+        <div className="flex gap-2 mt-6">
+          <button type="button" onClick={reset} className="btn btn-primary">
+            <RotateCcw size={15} /> Reintentar
           </button>
-          <Link
-            href="/"
-            className="px-5 py-2.5 rounded-xl font-semibold text-sm border transition-all hover:opacity-75"
-            style={{ borderColor: "var(--color-card-border)", color: "var(--foreground-muted)" }}
-          >
-            Ir al inicio
-          </Link>
+          <Link href="/" className="btn btn-secondary">Ir al inicio</Link>
         </div>
       </div>
     </main>

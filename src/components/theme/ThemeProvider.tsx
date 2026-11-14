@@ -1,32 +1,50 @@
 "use client";
 
 // src/components/theme/ThemeProvider.tsx
-// Estado global de tema claro/oscuro/sistema. Antes cada componente que
-// llamaba useTheme() tenía su propio estado local — cambiar el tema desde
-// el navbar no se reflejaba en otros componentes montados (ej. el selector
-// de /configuracion) hasta recargar la página. Con contexto, todos comparten
-// la misma fuente de verdad y se re-renderizan juntos al cambiar.
+// Estado global de tema claro/oscuro/sistema.
+//
+// Única fuente de verdad: la clase .dark en <html>. La pone por primera vez el
+// script inline de layout.tsx (antes del primer pintado) y acá se mantiene.
+// La preferencia se guarda en localStorage y se lee con useSyncExternalStore,
+// así varias pestañas y todos los componentes ven siempre el mismo valor.
 
 import {
-  createContext, useCallback, useContext, useEffect, useState, ReactNode,
+  createContext, useCallback, useContext, useEffect, useSyncExternalStore, ReactNode,
 } from "react";
 
 export type Tema = "claro" | "oscuro" | "sistema";
 
-function resolverTema(tema: Tema, prefiereOscuro: boolean): "claro" | "oscuro" {
-  if (tema === "sistema") return prefiereOscuro ? "oscuro" : "claro";
-  return tema;
+const CLAVE = "monteflori-tema";
+const EVENTO = "monteflori-tema-cambio";
+
+function leerTema(): Tema {
+  try {
+    const guardado = localStorage.getItem(CLAVE);
+    return guardado === "claro" || guardado === "oscuro" ? guardado : "sistema";
+  } catch {
+    return "sistema";
+  }
 }
 
-function aplicarAlDOM(resuelto: "claro" | "oscuro") {
-  const html = document.documentElement;
-  if (resuelto === "oscuro") html.classList.add("dark");
-  else html.classList.remove("dark");
+function suscribirTema(callback: () => void) {
+  window.addEventListener("storage", callback);
+  window.addEventListener(EVENTO, callback);
+  return () => {
+    window.removeEventListener("storage", callback);
+    window.removeEventListener(EVENTO, callback);
+  };
+}
+
+const CONSULTA_OSCURO = "(prefers-color-scheme: dark)";
+
+function suscribirSistema(callback: () => void) {
+  const mql = window.matchMedia(CONSULTA_OSCURO);
+  mql.addEventListener("change", callback);
+  return () => mql.removeEventListener("change", callback);
 }
 
 interface ThemeContextValue {
   tema: Tema;
-  temaActual: Tema;
   temaResuelto: "claro" | "oscuro";
   setTema: (t: Tema) => void;
   toggleTema: () => void;
@@ -34,47 +52,42 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue>({
   tema: "sistema",
-  temaActual: "sistema",
   temaResuelto: "claro",
   setTema: () => {},
   toggleTema: () => {},
 });
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [tema, setTemaState] = useState<Tema>("sistema");
-  const [prefiereOscuro, setPrefiereOscuro] = useState(false);
+  const tema = useSyncExternalStore<Tema>(suscribirTema, leerTema, () => "sistema");
+  const prefiereOscuro = useSyncExternalStore(
+    suscribirSistema,
+    () => window.matchMedia(CONSULTA_OSCURO).matches,
+    () => false
+  );
 
-  // Leer localStorage al montar + suscribirse a cambios del tema del SO
+  const temaResuelto: "claro" | "oscuro" =
+    tema === "sistema" ? (prefiereOscuro ? "oscuro" : "claro") : tema;
+
   useEffect(() => {
-    const guardado = localStorage.getItem("monteflori-tema") as Tema | null;
-    const mql = window.matchMedia("(prefers-color-scheme: dark)");
-    setPrefiereOscuro(mql.matches);
-    if (guardado) setTemaState(guardado);
+    document.documentElement.classList.toggle("dark", temaResuelto === "oscuro");
+  }, [temaResuelto]);
 
-    const onChange = (e: MediaQueryListEvent) => setPrefiereOscuro(e.matches);
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
-  }, []);
-
-  // Aplicar al DOM cada vez que cambia el tema elegido o el del SO
-  useEffect(() => {
-    aplicarAlDOM(resolverTema(tema, prefiereOscuro));
-  }, [tema, prefiereOscuro]);
-
-  const setTema = useCallback((nuevoTema: Tema) => {
-    setTemaState(nuevoTema);
-    localStorage.setItem("monteflori-tema", nuevoTema);
+  const setTema = useCallback((nuevo: Tema) => {
+    try {
+      if (nuevo === "sistema") localStorage.removeItem(CLAVE);
+      else localStorage.setItem(CLAVE, nuevo);
+    } catch {
+      // Modo privado sin storage: el tema igual cambia en esta pestaña.
+    }
+    window.dispatchEvent(new Event(EVENTO));
   }, []);
 
   const toggleTema = useCallback(() => {
-    const actual = resolverTema(tema, prefiereOscuro);
-    setTema(actual === "oscuro" ? "claro" : "oscuro");
-  }, [tema, prefiereOscuro, setTema]);
-
-  const temaResuelto = resolverTema(tema, prefiereOscuro);
+    setTema(temaResuelto === "oscuro" ? "claro" : "oscuro");
+  }, [temaResuelto, setTema]);
 
   return (
-    <ThemeContext.Provider value={{ tema, temaActual: tema, temaResuelto, setTema, toggleTema }}>
+    <ThemeContext.Provider value={{ tema, temaResuelto, setTema, toggleTema }}>
       {children}
     </ThemeContext.Provider>
   );

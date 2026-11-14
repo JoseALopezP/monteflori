@@ -1,7 +1,7 @@
 "use client";
 
 // src/components/auth/AuthProvider.tsx
-// Contexto global de autenticación + inicialización del tema
+// Contexto global de autenticación.
 
 import {
   createContext,
@@ -24,36 +24,16 @@ const AuthContext = createContext<AuthContextValue>({
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // Inicializar tema desde localStorage
-  useEffect(() => {
-    const tema = localStorage.getItem("monteflori-tema");
-    const html = document.documentElement;
-    if (tema === "oscuro") {
-      html.classList.add("dark");
-      html.classList.remove("light");
-    } else if (tema === "claro") {
-      html.classList.add("light");
-      html.classList.remove("dark");
-    }
-    // "sistema" deja que el @media lo maneje
-  }, []);
+  const [estado, setEstado] = useState<AuthContextValue>({ user: null, loading: true });
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
+      setEstado({ user: u, loading: false });
     });
     return () => unsub();
   }, []);
 
-  return (
-    <AuthContext.Provider value={{ user, loading }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={estado}>{children}</AuthContext.Provider>;
 }
 
 export function useAuthContext() {

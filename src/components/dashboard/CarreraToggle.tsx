@@ -1,124 +1,84 @@
 "use client";
 
 // src/components/dashboard/CarreraToggle.tsx
-// Selector de carrera activa con vista global
+// Selector de qué carrera se está mirando. Todo el dashboard (inicio, materias,
+// plan, gráficos) se filtra por lo que se elija acá.
 
-import { Carrera } from "@/types";
-import { Globe, ChevronDown } from "lucide-react";
-import { useState } from "react";
+import Link from "next/link";
+import * as Dropdown from "@radix-ui/react-dropdown-menu";
+import { Check, ChevronDown, GraduationCap, Layers, Settings2 } from "lucide-react";
+import { useCarreraActivaContext } from "./CarreraActivaProvider";
 
-interface CarreraToggleProps {
-  carreras: Carrera[];
-  carreraActivaId: string | null;
-  onChange: (id: string | null) => void;
-}
-
-export function CarreraToggle({
-  carreras,
-  carreraActivaId,
-  onChange,
-}: CarreraToggleProps) {
-  const [open, setOpen] = useState(false);
-  const activa = carreras.find((c) => c.id === carreraActivaId);
+export function CarreraToggle() {
+  const { carreras, carreraActiva, carreraActivaId, setCarreraActivaId } = useCarreraActivaContext();
 
   if (carreras.length === 0) return null;
 
   return (
-    <div className="relative">
-      <button
+    <Dropdown.Root>
+      <Dropdown.Trigger
         id="btn-toggle-carrera"
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium transition-all hover:opacity-80"
-        style={{
-          background: "var(--color-card)",
-          borderColor: "var(--color-card-border)",
-          color: "var(--foreground)",
-          boxShadow: "var(--shadow-sm)",
-        }}
-        aria-expanded={open}
-        aria-haspopup="listbox"
+        className="btn btn-secondary max-w-full min-w-0 !font-semibold"
+        aria-label={`Carrera: ${carreraActiva?.nombre ?? "todas"}. Cambiar`}
       >
-        {activa ? (
-          <>
-            <span
-              className="w-2 h-2 rounded-full"
-              style={{ background: activa.color ?? "var(--color-primary)" }}
-            />
-            <span className="max-w-32 truncate">{activa.nombre}</span>
-          </>
+        {carreraActiva ? (
+          <span
+            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+            style={{ background: carreraActiva.color ?? "var(--color-primary)" }}
+          />
         ) : (
-          <>
-            <Globe size={13} style={{ color: "var(--foreground-muted)" }} />
-            <span>Vista global</span>
-          </>
+          <Layers size={15} className="text-foreground-muted flex-shrink-0" />
         )}
-        <ChevronDown
-          size={13}
-          className={`transition-transform ${open ? "rotate-180" : ""}`}
-          style={{ color: "var(--foreground-subtle)" }}
-        />
-      </button>
+        <span className="truncate">{carreraActiva?.nombre ?? "Todas las carreras"}</span>
+        <ChevronDown size={14} className="text-foreground-subtle flex-shrink-0" />
+      </Dropdown.Trigger>
 
-      {open && (
-        <div
-          className="absolute top-full mt-2 right-0 z-50 rounded-xl border py-1 min-w-48 animate-scale-in"
-          style={{
-            background: "var(--color-card)",
-            borderColor: "var(--color-card-border)",
-            boxShadow: "var(--shadow-md)",
-          }}
-          role="listbox"
-        >
-          {/* Vista global */}
-          <button
-            role="option"
-            aria-selected={carreraActivaId === null}
-            onClick={() => { onChange(null); setOpen(false); }}
-            className="w-full text-left px-4 py-2.5 text-sm font-medium flex items-center gap-3 transition-colors hover:opacity-75"
-            style={{
-              color: carreraActivaId === null ? "var(--color-primary)" : "var(--foreground)",
-              background: carreraActivaId === null ? "var(--estado-aprobada-bg)" : "transparent",
-            }}
-          >
-            <Globe size={13} />
-            Vista global
-          </button>
+      <Dropdown.Portal>
+        <Dropdown.Content className="menu w-72 max-w-[calc(100vw-2rem)]" align="center" sideOffset={8}>
+          <Dropdown.Label className="menu-label">Estás viendo</Dropdown.Label>
 
-          <div className="h-px mx-3 my-1" style={{ background: "var(--color-card-border)" }} />
+          {carreras.length > 1 && (
+            <Dropdown.Item className="menu-item" onSelect={() => setCarreraActivaId(null)}>
+              <Layers size={15} className="text-foreground-muted flex-shrink-0" />
+              <span className="flex-1">Todas las carreras</span>
+              {carreraActivaId === null && <Check size={15} className="text-primary" />}
+            </Dropdown.Item>
+          )}
 
           {carreras.map((c) => (
-            <button
-              key={c.id}
-              role="option"
-              aria-selected={carreraActivaId === c.id}
-              onClick={() => { onChange(c.id); setOpen(false); }}
-              className="w-full text-left px-4 py-2.5 text-sm font-medium flex items-center gap-3 transition-colors hover:opacity-75"
-              style={{
-                color: carreraActivaId === c.id ? "var(--color-primary)" : "var(--foreground)",
-                background: carreraActivaId === c.id ? "var(--estado-aprobada-bg)" : "transparent",
-              }}
-            >
+            <Dropdown.Item key={c.id} className="menu-item" onSelect={() => setCarreraActivaId(c.id)}>
               <span
-                className="w-2 h-2 rounded-full flex-shrink-0"
+                className="w-2.5 h-2.5 rounded-full flex-shrink-0 mx-[3px]"
                 style={{ background: c.color ?? "var(--color-primary)" }}
               />
-              <span className="truncate">{c.nombre}</span>
-              <span className="ml-auto text-xs" style={{ color: "var(--foreground-subtle)" }}>
-                {c.institucion}
+              <span className="flex-1 min-w-0">
+                <span className="block truncate">{c.nombre}</span>
+                {c.institucion && (
+                  <span className="block text-xs font-medium text-foreground-subtle truncate">
+                    {c.institucion}
+                  </span>
+                )}
               </span>
-            </button>
+              {carreraActivaId === c.id && <Check size={15} className="text-primary flex-shrink-0" />}
+            </Dropdown.Item>
           ))}
-        </div>
-      )}
 
-      {/* Overlay para cerrar */}
-      {open && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setOpen(false)}
-          aria-hidden
-        />
-      )}
-    </div>
+          {carreras.length === 1 && carreraActivaId !== null && (
+            <Dropdown.Item className="menu-item" onSelect={() => setCarreraActivaId(null)}>
+              <GraduationCap size={15} className="text-foreground-muted flex-shrink-0" />
+              <span className="flex-1">Ver también materias sin carrera</span>
+            </Dropdown.Item>
+          )}
+
+          <div className="menu-sep" />
+          <Dropdown.Item className="menu-item" asChild>
+            <Link href="/carreras">
+              <Settings2 size={15} className="text-foreground-muted flex-shrink-0" />
+              Administrar carreras
+            </Link>
+          </Dropdown.Item>
+        </Dropdown.Content>
+      </Dropdown.Portal>
+    </Dropdown.Root>
   );
 }

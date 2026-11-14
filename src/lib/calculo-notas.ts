@@ -180,7 +180,6 @@ export function calcularFormulaCustom(
       formulaEval = formulaEval.replace(new RegExp(key, "g"), String(val));
     });
 
-    // eslint-disable-next-line no-new-func
     return Number(new Function(`return ${formulaEval}`)());
   } catch {
     return 0;
@@ -208,6 +207,15 @@ export function calcularResultadoMateria(materia: Materia): ResultadoCalculo {
       notaActual = config.grupos && config.grupos.length > 0
         ? calcularNotaGrupos(evaluaciones, config.grupos)
         : calcularPromedioSimple(evaluaciones);
+      // Hay notas pero ninguna cae en un grupo (ej. la "Nota SIU Guaraní" que
+      // trae la importación, de tipo "otro"): antes la materia quedaba en 0.
+      // En ese caso se promedia lo que hay.
+      if (notaActual === 0 && conNota.length > 0) {
+        const hayGrupoConDatos = (config.grupos ?? []).some((g) =>
+          conNota.some((e) => g.tipos.includes(e.tipo))
+        );
+        if (!hayGrupoConDatos) notaActual = calcularPromedioSimple(evaluaciones);
+      }
       break;
     case "lineal":
       notaActual = calcularPromedioSimple(evaluaciones);
@@ -222,17 +230,11 @@ export function calcularResultadoMateria(materia: Materia): ResultadoCalculo {
       break;
   }
 
-  const tieneFinal = evaluaciones.some(
-    (e) => e.tipo === "final" && e.nota !== null && e.nota !== undefined
-  );
-
   return {
     promedio_actual: Math.min(10, Number(notaActual.toFixed(2))),
     nota_proyectada: conNota.length > 0 ? Math.min(10, Number(notaActual.toFixed(2))) : null,
     puede_promocionar: notaActual >= config.nota_promocionar,
-    puede_aprobar: tieneFinal
-      ? notaActual >= config.nota_aprobar
-      : notaActual >= config.nota_aprobar,
+    puede_aprobar: notaActual >= config.nota_aprobar,
     evaluaciones_completas: conNota.length,
     evaluaciones_totales: evaluaciones.length,
     porcentaje_completado:
@@ -246,10 +248,15 @@ export function calcularResultadoMateria(materia: Materia): ResultadoCalculo {
  * Calcula el promedio general de todas las materias aprobadas de una carrera.
  */
 export function calcularPromedioGeneral(materias: Materia[]): number {
-  const aprobadas = materias.filter((m) => m.estado === "aprobada");
-  if (aprobadas.length === 0) return 0;
+  // Solo cuentan las aprobadas que tienen alguna nota cargada: una materia
+  // aprobada sin nota (ej. una equivalencia) no es un 0 y no debe bajar el promedio.
+  const promedios = materias
+    .filter((m) => m.estado === "aprobada")
+    .map((m) => calcularResultadoMateria(m))
+    .filter((r) => r.nota_proyectada !== null)
+    .map((r) => r.promedio_actual);
+  if (promedios.length === 0) return 0;
 
-  const promedios = aprobadas.map((m) => calcularResultadoMateria(m).promedio_actual);
   return Number(
     (promedios.reduce((a, b) => a + b, 0) / promedios.length).toFixed(2)
   );

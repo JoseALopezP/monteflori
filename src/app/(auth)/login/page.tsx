@@ -1,25 +1,19 @@
 "use client";
 
 // src/app/(auth)/login/page.tsx
-// Página de inicio de sesión de Monteflori
+// Inicio de sesión.
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
-import {
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  GoogleAuthProvider,
-} from "firebase/auth";
+import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { crearPerfilUsuario } from "@/lib/firestore";
-import { Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
+import { AuthShell, BotonGoogle, CampoPassword, Separador } from "@/components/auth/AuthShell";
+import { Spinner } from "@/components/ui/kit";
 
 const provider = new GoogleAuthProvider();
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -27,23 +21,27 @@ export default function LoginPage() {
   const [loadingGoogle, setLoadingGoogle] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Al entrar no hace falta navegar: AuthShell detecta la sesión y manda al inicio.
+
   async function handleEmail(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      router.push("/");
+      await signInWithEmailAndPassword(auth, email.trim(), password);
     } catch (err: unknown) {
-      const msg = (err as { code?: string })?.code;
-      if (msg === "auth/invalid-credential" || msg === "auth/wrong-password") {
-        setError("Email o contraseña incorrectos.");
-      } else if (msg === "auth/too-many-requests") {
-        setError("Demasiados intentos. Esperá unos minutos.");
+      const code = (err as { code?: string })?.code;
+      if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") {
+        setError("El email o la contraseña no coinciden. Revisalos e intentá de nuevo.");
+      } else if (code === "auth/invalid-email") {
+        setError("Ese email no parece válido.");
+      } else if (code === "auth/too-many-requests") {
+        setError("Demasiados intentos seguidos. Esperá unos minutos y probá de nuevo.");
+      } else if (code === "auth/network-request-failed") {
+        setError("No hay conexión. Revisá tu internet e intentá de nuevo.");
       } else {
-        setError("Error al iniciar sesión. Intentá de nuevo.");
+        setError("No pudimos iniciar sesión. Intentá de nuevo.");
       }
-    } finally {
       setLoading(false);
     }
   }
@@ -54,276 +52,58 @@ export default function LoginPage() {
     try {
       const cred = await signInWithPopup(auth, provider);
       // Si es la primera vez que esta persona entra (nunca pasó por /register),
-      // todavía no tiene documento en Firestore — crearPerfilUsuario no hace
+      // todavía no tiene documento en Firestore. crearPerfilUsuario no hace
       // nada si ya existe, así que es seguro llamarlo en cada login.
-      await crearPerfilUsuario(
-        cred.user.uid,
-        cred.user.displayName ?? "Estudiante",
-        cred.user.email ?? ""
-      );
-      router.push("/");
-    } catch {
-      setError("No se pudo iniciar sesión con Google.");
-    } finally {
+      await crearPerfilUsuario(cred.user.uid, cred.user.displayName ?? "Estudiante", cred.user.email ?? "");
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code;
+      // Cerrar la ventana de Google no es un error: no hay nada que avisar.
+      if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
+        setError(
+          code === "auth/popup-blocked"
+            ? "El navegador bloqueó la ventana de Google. Permití las ventanas emergentes para este sitio."
+            : "No pudimos entrar con Google. Intentá de nuevo."
+        );
+      }
       setLoadingGoogle(false);
     }
   }
 
   return (
-    <main
-      className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 relative overflow-hidden"
-      style={{ background: "var(--background)" }}
-    >
-      {/* Luces/Blobs de fondo animadas */}
-      <div
-        aria-hidden
-        className="absolute inset-0 pointer-events-none overflow-hidden"
-        style={{ zIndex: 0 }}
-      >
-        <div
-          className="absolute -top-32 -right-32 w-96 h-96 rounded-full opacity-20"
-          style={{ background: "var(--color-primary)", filter: "blur(90px)" }}
-        />
-        <div
-          className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full opacity-15"
-          style={{ background: "var(--color-secondary)", filter: "blur(90px)" }}
-        />
-      </div>
+    <AuthShell titulo="Hola de nuevo" subtitulo="Entrá para seguir tu carrera donde la dejaste.">
+      {error && <div className="notice notice-error mb-4" role="alert">{error}</div>}
 
-      {/* Contenedor Principal */}
-      <div
-        className="relative w-full max-w-md my-auto animate-fade-in flex flex-col gap-6"
-        style={{ zIndex: 1 }}
-      >
-        {/* Cabecera / Logo */}
-        <div className="flex flex-col items-center text-center">
-          <Image
-            src="/logo.png" alt="Monteflori" width={56} height={56} priority
-            className="rounded-2xl mb-3 shadow-md transition-transform hover:scale-105"
-          />
-          <h1
-            className="text-2xl sm:text-3xl font-extrabold tracking-tight"
-            style={{ color: "var(--foreground)" }}
-          >
-            Monteflori
-          </h1>
-          <p
-            className="text-sm mt-1 font-medium"
-            style={{ color: "var(--foreground-muted)" }}
-          >
-            Gestión Académica Inteligente
-          </p>
+      <BotonGoogle id="btn-login-google" onClick={handleGoogle} cargando={loadingGoogle}>
+        Entrar con Google
+      </BotonGoogle>
+
+      <Separador />
+
+      <form onSubmit={handleEmail} className="space-y-4">
+        <div>
+          <label className="label" htmlFor="login-email">Email</label>
+          <input id="login-email" type="email" className="input" value={email} onChange={(e) => setEmail(e.target.value)}
+            required autoComplete="email" placeholder="vos@ejemplo.com" />
         </div>
 
-        {/* Tarjeta de Formulario */}
-        <div
-          className="rounded-2xl p-6 sm:p-8 shadow-xl border flex flex-col gap-5"
-          style={{
-            background: "var(--color-card)",
-            borderColor: "var(--color-card-border)",
-            boxShadow: "var(--shadow-md)",
-          }}
-        >
-          <div className="flex flex-col gap-1">
-            <h2
-              className="text-xl font-bold"
-              style={{ color: "var(--foreground)" }}
-            >
-              Iniciar sesión
-            </h2>
-            <p
-              className="text-xs"
-              style={{ color: "var(--foreground-subtle)" }}
-            >
-              Ingresá con tus credenciales para acceder a tus materias
-            </p>
+        <div>
+          <div className="flex items-baseline justify-between">
+            <label className="label" htmlFor="login-password">Contraseña</label>
+            <Link href="/forgot-password" className="link text-xs">¿La olvidaste?</Link>
           </div>
-
-          {/* Mensaje de Error */}
-          {error && (
-            <div
-              className="p-3.5 rounded-xl text-xs font-semibold animate-fade-in flex items-center gap-2"
-              style={{
-                background: "var(--estado-libre-bg)",
-                color: "var(--color-alert)",
-                border: "1px solid var(--color-alert-light)",
-              }}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
-              {error}
-            </div>
-          )}
-
-          {/* Formulario de Email */}
-          <form onSubmit={handleEmail} className="flex flex-col gap-4">
-            {/* Campo Email */}
-            <div className="flex flex-col gap-1.5">
-              <label
-                htmlFor="login-email"
-                className="text-xs font-bold uppercase tracking-wider"
-                style={{ color: "var(--foreground-muted)" }}
-              >
-                Email
-              </label>
-              <div className="relative flex items-center">
-                <Mail
-                  size={18}
-                  className="absolute left-3.5 pointer-events-none"
-                  style={{ color: "var(--foreground-subtle)" }}
-                />
-                <input
-                  id="login-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  placeholder="estudiante@universidad.edu.ar"
-                  className="w-full pl-11 pr-4 py-3 rounded-xl text-sm font-medium transition-all"
-                  style={{
-                    background: "var(--background-alt)",
-                    border: "1.5px solid var(--color-card-border)",
-                    color: "var(--foreground)",
-                    outline: "none",
-                  }}
-                  onFocus={(e) =>
-                    (e.target.style.borderColor = "var(--color-primary)")
-                  }
-                  onBlur={(e) =>
-                    (e.target.style.borderColor = "var(--color-card-border)")
-                  }
-                />
-              </div>
-            </div>
-
-            {/* Campo Contraseña */}
-            <div className="flex flex-col gap-1.5">
-              <div className="flex justify-between items-center">
-                <label
-                  htmlFor="login-password"
-                  className="text-xs font-bold uppercase tracking-wider"
-                  style={{ color: "var(--foreground-muted)" }}
-                >
-                  Contraseña
-                </label>
-                <Link
-                  href="/forgot-password"
-                  className="text-xs font-semibold hover:underline"
-                  style={{ color: "var(--color-primary)" }}
-                >
-                  ¿Olvidaste tu contraseña?
-                </Link>
-              </div>
-
-              <div className="relative flex items-center">
-                <Lock
-                  size={18}
-                  className="absolute left-3.5 pointer-events-none"
-                  style={{ color: "var(--foreground-subtle)" }}
-                />
-                <input
-                  id="login-password"
-                  type={showPass ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  placeholder="••••••••"
-                  className="w-full pl-11 pr-12 py-3 rounded-xl text-sm font-medium transition-all"
-                  style={{
-                    background: "var(--background-alt)",
-                    border: "1.5px solid var(--color-card-border)",
-                    color: "var(--foreground)",
-                    outline: "none",
-                  }}
-                  onFocus={(e) =>
-                    (e.target.style.borderColor = "var(--color-primary)")
-                  }
-                  onBlur={(e) =>
-                    (e.target.style.borderColor = "var(--color-card-border)")
-                  }
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPass(!showPass)}
-                  className="absolute right-3.5 p-1 rounded-lg transition-opacity hover:opacity-75"
-                  style={{ color: "var(--foreground-subtle)" }}
-                  aria-label={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
-                >
-                  {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-            </div>
-
-            {/* Botón Ingresar */}
-            <button
-              id="btn-login-email"
-              type="submit"
-              disabled={loading}
-              className="w-full py-3.5 px-4 rounded-xl font-bold text-sm transition-all hover:opacity-90 active:scale-95 flex items-center justify-center gap-2 mt-1 cursor-pointer"
-              style={{
-                background: "var(--color-primary)",
-                color: "white",
-                boxShadow: "var(--shadow-sm)",
-              }}
-            >
-              {loading && <Loader2 size={18} className="animate-spin" />}
-              {loading ? "Ingresando..." : "Ingresar"}
-            </button>
-          </form>
-
-          {/* Separador */}
-          <div className="flex items-center gap-3 my-1">
-            <div className="flex-1 h-px" style={{ background: "var(--color-card-border)" }} />
-            <span
-              className="text-xs font-semibold uppercase tracking-wider"
-              style={{ color: "var(--foreground-subtle)" }}
-            >
-              o
-            </span>
-            <div className="flex-1 h-px" style={{ background: "var(--color-card-border)" }} />
-          </div>
-
-          {/* Botón Google */}
-          <button
-            id="btn-login-google"
-            type="button"
-            onClick={handleGoogle}
-            disabled={loadingGoogle}
-            className="w-full py-3 px-4 rounded-xl font-semibold text-sm border transition-all hover:opacity-80 active:scale-95 flex items-center justify-center gap-3 cursor-pointer"
-            style={{
-              background: "var(--background-alt)",
-              borderColor: "var(--color-card-border)",
-              color: "var(--foreground)",
-            }}
-          >
-            {loadingGoogle ? (
-              <Loader2 size={18} className="animate-spin" />
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-              </svg>
-            )}
-            Continuar con Google
-          </button>
-
-          {/* Enlace a Registro */}
-          <p
-            className="text-center text-sm font-medium mt-1"
-            style={{ color: "var(--foreground-muted)" }}
-          >
-            ¿No tenés cuenta?{" "}
-            <Link
-              href="/register"
-              className="font-bold hover:underline"
-              style={{ color: "var(--color-primary)" }}
-            >
-              Registrate gratis
-            </Link>
-          </p>
+          <CampoPassword id="login-password" value={password} onChange={setPassword} autoComplete="current-password"
+            mostrar={showPass} onAlternar={() => setShowPass((v) => !v)} />
         </div>
-      </div>
-    </main>
+
+        <button id="btn-login-email" type="submit" disabled={loading} className="btn btn-primary btn-lg btn-block">
+          {loading && <Spinner />}
+          {loading ? "Entrando..." : "Entrar"}
+        </button>
+      </form>
+
+      <p className="text-center text-sm text-foreground-muted mt-6">
+        ¿Todavía no tenés cuenta? <Link href="/register" className="link">Creala gratis</Link>
+      </p>
+    </AuthShell>
   );
 }

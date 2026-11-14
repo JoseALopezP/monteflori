@@ -337,6 +337,14 @@ describe("calcularPromedioGeneral", () => {
     ];
     expect(calcularPromedioGeneral(materias)).toBe(7);
   });
+
+  it("no cuenta como 0 a las aprobadas que no tienen ninguna nota cargada", () => {
+    const materias = [
+      materia({ id: "a", estado: "aprobada", evaluaciones: [evaluacion({ nota: 8 })] }),
+      materia({ id: "b", estado: "aprobada", evaluaciones: [] }),
+    ];
+    expect(calcularPromedioGeneral(materias)).toBe(8);
+  });
 });
 
 describe("calcularPorcentajeAvance", () => {

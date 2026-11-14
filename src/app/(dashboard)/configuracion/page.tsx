@@ -1,317 +1,285 @@
 "use client";
 
 // src/app/(dashboard)/configuracion/page.tsx
-// Configuración completa del usuario
+// Configuración de la app: apariencia, Google Calendar, SIU Guaraní y apoyo al
+// proyecto. Los datos personales están en Mi perfil.
 
-import { useState, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
-  Settings, Calendar, Moon, Sun, Monitor,
-  Check, ExternalLink, Shield, Loader2, Heart,
-  AlertTriangle, RefreshCw, X
+  AlertTriangle, CalendarArrowDown, CalendarDays, Check, ChevronRight, ExternalLink, Heart, Monitor, Moon,
+  Palette, Puzzle, RefreshCw, Sun, Unplug,
 } from "lucide-react";
 import { esDonanteActivo } from "@/lib/planes";
-import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useAuthContext } from "@/components/auth/AuthProvider";
-import { useTheme } from "@/components/theme/ThemeProvider";
-import { getPerfilUsuario } from "@/lib/firestore";
+import { useTheme, Tema } from "@/components/theme/ThemeProvider";
+import { usePerfil } from "@/hooks/usePerfil";
+import { useMaterias } from "@/hooks/useMaterias";
+import { useConfirm, useToast } from "@/components/ui/Feedback";
+import { PageHeader, Spinner } from "@/components/ui/kit";
 import { sincronizarCalendar, desconectarCalendar } from "@/lib/calendarCliente";
-import { Usuario, ErrorCalendar } from "@/types";
+import { proximasFechas } from "@/lib/fechas";
+import { descargarIcs } from "@/lib/ics";
 
-function ConfiguracionContent() {
-  const { user } = useAuthContext();
-  const { tema, setTema } = useTheme();
+const TEMAS: { value: Tema; label: string; icon: typeof Sun }[] = [
+  { value: "claro", label: "Claro", icon: Sun },
+  { value: "oscuro", label: "Oscuro", icon: Moon },
+  { value: "sistema", label: "Automático", icon: Monitor },
+];
 
-  const [perfil, setPerfil] = useState<Usuario | null>(null);
-  const [calendarConectado, setCalendarConectado] = useState(false);
-  const [conectandoCalendar, setConectandoCalendar] = useState(false);
-  const [errorCalendar, setErrorCalendar] = useState<string | null>(null);
-  const [errorSync, setErrorSync] = useState<ErrorCalendar | null>(null);
-  const [sincronizando, setSincronizando] = useState(false);
-  const [desconectando, setDesconectando] = useState(false);
+const MENSAJES_CALLBACK: Record<string, { texto: string; tipo: "ok" | "error" }> = {
+  ok: { texto: "Google Calendar conectado", tipo: "ok" },
+  error: { texto: "No se pudo conectar con Google Calendar. Probá de nuevo.", tipo: "error" },
+  sin_token: {
+    texto: "Google no nos dio permiso permanente. Volvé a conectar y aceptá todos los permisos.",
+    tipo: "error",
+  },
+};
 
-  const esDonante = esDonanteActivo(perfil?.suscripcion);
-
-  async function cargarPerfil() {
-    if (!user?.uid) return;
-    const p = await getPerfilUsuario(user.uid);
-    if (!p) return;
-    setPerfil(p);
-    setCalendarConectado(!!p.credenciales_externas?.google_calendar_refresh_token);
-    setErrorSync(p.uso?.calendar_ultimo_error ?? null);
-  }
+/** Muestra el resultado al volver de autorizar en Google y limpia la URL. */
+function ResultadoConexion() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const toast = useToast();
+  const resultado = params.get("calendar");
 
   useEffect(() => {
-    cargarPerfil();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+    if (!resultado) return;
+    const mensaje = MENSAJES_CALLBACK[resultado];
+    if (mensaje) toast(mensaje.texto, mensaje.tipo);
+    // Sin el parámetro, recargar la página no repite el aviso.
+    router.replace("/configuracion");
+  }, [resultado, toast, router]);
 
-  async function reintentarSync() {
-    if (!user) return;
-    setSincronizando(true);
-    try {
-      await sincronizarCalendar(user, { reconciliacion: true });
-      // Recarga para reflejar si el error se resolvió o sigue.
-      await cargarPerfil();
-    } finally {
-      setSincronizando(false);
-    }
-  }
+  return null;
+}
 
-  async function darDeBajaCalendar() {
-    if (!user) return;
-    if (
-      !confirm(
-        "¿Dar de baja la sincronización con Google Calendar?\n\n" +
-          "Los eventos que ya se crearon quedan en tu calendario; podés borrarlos vos si querés."
-      )
-    ) {
-      return;
-    }
-    setDesconectando(true);
-    try {
-      const ok = await desconectarCalendar(user);
-      if (ok) {
-        setCalendarConectado(false);
-        setErrorSync(null);
-      } else {
-        setErrorCalendar("No se pudo dar de baja. Intentá de nuevo.");
-      }
-    } finally {
-      setDesconectando(false);
-    }
+export default function ConfiguracionPage() {
+  const { user } = useAuthContext();
+  const { perfil } = usePerfil();
+  const { materias } = useMaterias();
+  const { tema, setTema } = useTheme();
+  const toast = useToast();
+  const confirmar = useConfirm();
+
+  const [ocupado, setOcupado] = useState<"conectar" | "sincronizar" | "desconectar" | null>(null);
+
+  // El perfil llega en tiempo real: cuando el servidor termina de sincronizar o
+  // registra un error, esta pantalla se actualiza sola.
+  const calendarConectado = !!perfil?.credenciales_externas?.google_calendar_refresh_token;
+  const errorSync = perfil?.uso?.calendar_ultimo_error ?? null;
+  const ultimaSync = perfil?.uso?.ultima_reconciliacion_calendar;
+  const esDonante = esDonanteActivo(perfil?.suscripcion);
+
+  // Todas las fechas de hoy en adelante, de todas las carreras.
+  const fechas = proximasFechas(materias);
+
+  function descargarFechas() {
+    descargarIcs(fechas, "monteflori-fechas.ics");
+    toast("Archivo descargado: abrilo para sumarlo a tu calendario");
   }
 
   // La URL de autorización se arma en el servidor: lleva un `state` firmado que
   // acá no podríamos generar sin exponer el secreto.
   async function conectarCalendar() {
     if (!user) return;
-    setConectandoCalendar(true);
+    setOcupado("conectar");
     try {
       const token = await user.getIdToken();
       const res = await fetch("/api/auth/google-calendar/start", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error("No se pudo iniciar la conexión");
+      if (!res.ok) throw new Error();
       const { url } = await res.json();
       window.location.href = url;
     } catch {
-      setErrorCalendar("No se pudo conectar con Google Calendar. Intentá de nuevo.");
-      setConectandoCalendar(false);
+      toast("No se pudo iniciar la conexión con Google. Probá de nuevo.", "error");
+      setOcupado(null);
     }
   }
 
-  const inputStyle = {
-    background: "var(--background-alt)",
-    border: "1.5px solid var(--color-card-border)",
-    color: "var(--foreground)",
-    outline: "none",
-    borderRadius: "var(--radius-md)",
-    padding: "0.625rem 0.875rem",
-    fontSize: "var(--font-size-sm)",
-    width: "100%",
-  };
+  async function sincronizarAhora() {
+    if (!user) return;
+    setOcupado("sincronizar");
+    await sincronizarCalendar(user, { reconciliacion: true });
+    setOcupado(null);
+    // Si falló, el servidor ya dejó el error en el perfil y aparece arriba.
+    toast("Sincronización terminada");
+  }
 
-  const temaOpciones = [
-    { value: "sistema", label: "Sistema", icon: Monitor },
-    { value: "claro", label: "Claro", icon: Sun },
-    { value: "oscuro", label: "Oscuro", icon: Moon },
-  ];
+  async function desconectar() {
+    if (!user) return;
+    const ok = await confirmar({
+      titulo: "¿Desconectar Google Calendar?",
+      mensaje: "Tus fechas dejan de sincronizarse. Los eventos que ya se crearon quedan en tu calendario.",
+      accion: "Desconectar",
+    });
+    if (!ok) return;
+    setOcupado("desconectar");
+    const hecho = await desconectarCalendar(user);
+    setOcupado(null);
+    toast(hecho ? "Google Calendar desconectado" : "No se pudo desconectar. Probá de nuevo.", hecho ? "ok" : "error");
+  }
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--background)" }}>
-      <div className="max-w-2xl mx-auto px-4 py-6">
+    <main className="page page-narrow space-y-4">
+      <Suspense fallback={null}>
+        <ResultadoConexion />
+      </Suspense>
 
-        <div className="mb-6">
-          <Link href="/" className="text-sm mb-1 block hover:underline"
-            style={{ color: "var(--foreground-muted)" }}>← Volver al dashboard</Link>
-          <h1 className="text-2xl font-extrabold flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-            <Settings size={22} style={{ color: "var(--color-primary)" }} />
-            Configuración
-          </h1>
+      <PageHeader titulo="Configuración" />
+
+      {/* ── Apariencia ── */}
+      <section className="card card-pad !mt-0">
+        <h2 className="section-title flex items-center gap-2 mb-3">
+          <Palette size={17} className="text-accent" /> Apariencia
+        </h2>
+        <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Tema de la app">
+          {TEMAS.map(({ value, label, icon: Icon }) => {
+            const elegido = tema === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={elegido}
+                onClick={() => setTema(value)}
+                className={`flex flex-col items-center gap-2 py-3.5 rounded-[var(--radius-md)] border-[1.5px] text-sm font-bold transition-colors ${
+                  elegido
+                    ? "border-primary bg-primary-soft text-primary"
+                    : "border-card-border text-foreground-muted hover:border-foreground-subtle hover:text-foreground"
+                }`}
+              >
+                <Icon size={19} />
+                {label}
+              </button>
+            );
+          })}
         </div>
+        {tema === "sistema" && <p className="hint">Sigue el modo claro u oscuro de tu dispositivo.</p>}
+      </section>
 
-        <div className="space-y-5">
+      {/* ── Calendario ── */}
+      <section className="card card-pad scroll-mt-20" id="calendar">
+        <h2 className="section-title flex items-center gap-2">
+          <CalendarDays size={17} className="text-secondary" /> Calendario
+        </h2>
+        <p className="text-sm text-foreground-muted mt-1.5">
+          Llevá tus fechas de parciales y finales al calendario que uses, con recordatorio un día antes y una
+          hora antes.
+        </p>
 
-          {/* Perfil */}
-          <div className="rounded-2xl p-5 border" style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
-            <h2 className="font-bold text-base mb-4 flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-              <Shield size={16} style={{ color: "var(--color-secondary)" }} />
-              Cuenta
-            </h2>
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center font-bold text-xl"
-                style={{ background: "var(--color-primary)", color: "white" }}>
-                {user?.displayName?.[0]?.toUpperCase() ?? "U"}
-              </div>
-              <div>
-                <p className="font-bold" style={{ color: "var(--foreground)" }}>{user?.displayName ?? "Estudiante"}</p>
-                <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>{user?.email}</p>
-              </div>
+        {/* Google: se mantiene solo */}
+        <div className="mt-5 pt-5 border-t border-card-border">
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="text-sm font-bold text-foreground">Google Calendar</h3>
+            {calendarConectado && !errorSync && (
+              <span className="badge" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}>
+                <Check size={12} strokeWidth={3} /> Conectado
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-foreground-muted mt-1">
+            Se conecta una vez y se mantiene solo: cada fecha que agregás, cambiás o borrás se actualiza en
+            tu calendario.
+          </p>
+
+        {errorSync && (
+          <div className="notice notice-error mt-3" role="alert">
+            <AlertTriangle size={17} className="flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">
+                {errorSync.requiere_reconectar ? "Google cortó el permiso" : "La última sincronización falló"}
+              </p>
+              <p className="text-xs text-foreground-muted mt-0.5">{errorSync.mensaje}</p>
             </div>
           </div>
+        )}
 
-          {/* Apariencia */}
-          <div className="rounded-2xl p-5 border" style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
-            <h2 className="font-bold text-base mb-4 flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-              <Sun size={16} style={{ color: "var(--color-accent)" }} />
-              Apariencia
-            </h2>
-            <div className="flex gap-3">
-              {temaOpciones.map(({ value, label, icon: Icon }) => (
-                <button key={value} onClick={() => setTema(value as "sistema" | "claro" | "oscuro")}
-                  className="flex-1 py-3 rounded-xl text-sm font-semibold border flex flex-col items-center gap-2 transition-all"
-                  style={{
-                    background: tema === value ? "var(--color-primary)" : "var(--background-alt)",
-                    color: tema === value ? "white" : "var(--foreground-muted)",
-                    borderColor: tema === value ? "var(--color-primary)" : "var(--color-card-border)",
-                  }}>
-                  <Icon size={18} />
-                  {label}
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          {!calendarConectado ? (
+            <button id="btn-conectar-calendar" type="button" className="btn btn-primary" onClick={conectarCalendar} disabled={ocupado !== null}>
+              {ocupado === "conectar" ? <Spinner size={14} /> : <ExternalLink size={14} />}
+              {ocupado === "conectar" ? "Abriendo Google..." : "Conectar Google Calendar"}
+            </button>
+          ) : (
+            <>
+              {errorSync?.requiere_reconectar ? (
+                <button type="button" className="btn btn-primary" onClick={conectarCalendar} disabled={ocupado !== null}>
+                  {ocupado === "conectar" ? <Spinner size={14} /> : <ExternalLink size={14} />}
+                  Volver a conectar
                 </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Nivel / donación */}
-          <div className="rounded-2xl p-5 border" style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
-            <h2 className="font-bold text-base mb-1 flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-              <Heart size={16} style={{ color: "var(--color-alert)" }} />
-              Tu nivel
-            </h2>
-            {esDonante ? (
-              <>
-                <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-                  Sos <strong style={{ color: "var(--color-primary)" }}>donante</strong> — gracias por bancar el proyecto.
-                  {perfil?.suscripcion?.donante_activo_hasta && (
-                    <> Activo hasta el{" "}
-                      {new Date(perfil.suscripcion.donante_activo_hasta).toLocaleDateString("es-AR", {
-                        day: "numeric", month: "long", year: "numeric",
-                      })}.
-                    </>
-                  )}
-                </p>
-                <Link href="/donar" className="text-sm font-semibold hover:underline mt-2 inline-block"
-                  style={{ color: "var(--color-primary)" }}>
-                  Ver detalles
-                </Link>
-              </>
-            ) : (
-              <>
-                <p className="text-sm mb-3" style={{ color: "var(--foreground-muted)" }}>
-                  Estás en el nivel <strong>gratis</strong>: todo ilimitado salvo Google Calendar,
-                  que permite una sincronización por mes.
-                </p>
-                <Link href="/donar"
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all hover:opacity-90"
-                  style={{ background: "var(--color-primary)", color: "white" }}>
-                  <Heart size={14} /> Bancá el proyecto
-                </Link>
-              </>
-            )}
-          </div>
-
-          {/* Google Calendar */}
-          <div className="rounded-2xl p-5 border" style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
-            <h2 className="font-bold text-base mb-1 flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-              <Calendar size={16} style={{ color: "var(--color-secondary)" }} />
-              Google Calendar
-            </h2>
-            <p className="text-sm mb-4" style={{ color: "var(--foreground-muted)" }}>
-              Tus fechas de parciales y finales se sincronizan solas con tu calendario de Google:
-              cuando agregás, editás o borrás una, y con un repaso diario por las dudas. Es gratis
-              para todos.
-            </p>
-
-            {errorSync && (
-              <div className="p-3 rounded-xl mb-3" style={{ background: "var(--estado-libre-bg)" }}>
-                <p className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--color-alert)" }}>
-                  <AlertTriangle size={14} />
-                  {errorSync.requiere_reconectar
-                    ? "Se cortó el permiso con Google"
-                    : "La última sincronización falló"}
-                </p>
-                <p className="text-xs mt-1" style={{ color: "var(--foreground-muted)" }}>
-                  {errorSync.mensaje}
-                </p>
-                <p className="text-xs mt-1" style={{ color: "var(--foreground-subtle)" }}>
-                  {new Date(errorSync.fecha).toLocaleString("es-AR")}
-                </p>
-              </div>
-            )}
-
-            {calendarConectado ? (
-              <div className="space-y-3">
-                {!errorSync && (
-                  <div className="flex items-center gap-3 p-3 rounded-xl"
-                    style={{ background: "var(--estado-aprobada-bg)", border: "1px solid var(--estado-aprobada)" }}>
-                    <Check size={16} style={{ color: "var(--estado-aprobada)" }} />
-                    <span className="text-sm font-semibold" style={{ color: "var(--estado-aprobada)" }}>
-                      Google Calendar conectado
-                    </span>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={reintentarSync}
-                    disabled={sincronizando}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold border transition-all hover:opacity-80 disabled:opacity-50"
-                    style={{ borderColor: "var(--color-card-border)", color: "var(--foreground)" }}>
-                    {sincronizando ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                    {sincronizando ? "Sincronizando..." : "Sincronizar ahora"}
-                  </button>
-
-                  {errorSync?.requiere_reconectar && (
-                    <button
-                      onClick={conectarCalendar}
-                      disabled={conectandoCalendar}
-                      className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-all hover:opacity-90 disabled:opacity-50"
-                      style={{ background: "var(--color-primary)", color: "white" }}>
-                      {conectandoCalendar ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
-                      Reconectar
-                    </button>
-                  )}
-
-                  <button
-                    onClick={darDeBajaCalendar}
-                    disabled={desconectando}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold border transition-all hover:opacity-80 disabled:opacity-50"
-                    style={{ borderColor: "var(--color-card-border)", color: "var(--color-alert)" }}>
-                    {desconectando ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
-                    Dar de baja
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <button
-                  id="btn-conectar-calendar"
-                  onClick={conectarCalendar}
-                  disabled={conectandoCalendar}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm border transition-all hover:opacity-80 disabled:opacity-50"
-                  style={{ background: "var(--background-alt)", borderColor: "var(--color-card-border)", color: "var(--foreground)" }}>
-                  {conectandoCalendar
-                    ? <Loader2 size={14} className="animate-spin" />
-                    : <ExternalLink size={14} />}
-                  {conectandoCalendar ? "Redirigiendo..." : "Conectar Google Calendar"}
+              ) : (
+                <button type="button" className="btn btn-secondary" onClick={sincronizarAhora} disabled={ocupado !== null}>
+                  {ocupado === "sincronizar" ? <Spinner size={14} /> : <RefreshCw size={14} />}
+                  {ocupado === "sincronizar" ? "Sincronizando..." : "Sincronizar ahora"}
                 </button>
-                {errorCalendar && (
-                  <p className="text-xs mt-2 font-medium" style={{ color: "var(--color-alert)" }}>
-                    {errorCalendar}
-                  </p>
-                )}
-              </>
-            )}
-          </div>
-
+              )}
+              <button type="button" className="btn btn-danger-ghost" onClick={desconectar} disabled={ocupado !== null}>
+                {ocupado === "desconectar" ? <Spinner size={14} /> : <Unplug size={14} />}
+                Desconectar
+              </button>
+            </>
+          )}
         </div>
-      </div>
-    </div>
+
+        {calendarConectado && ultimaSync && !errorSync && (
+          <p className="hint">
+            Último repaso completo:{" "}
+            {new Date(ultimaSync).toLocaleString("es-AR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
+          </p>
+        )}
+        </div>
+
+        {/* Cualquier otro calendario: archivo estándar */}
+        <div className="mt-5 pt-5 border-t border-card-border">
+          <h3 className="text-sm font-bold text-foreground">Apple, Samsung, Outlook u otro</h3>
+          <p className="text-sm text-foreground-muted mt-1">
+            Descargás un archivo con tus fechas y, al abrirlo, tu teléfono o tu computadora te ofrece sumarlas
+            al calendario. Es una copia: si después cambiás una fecha acá, volvé a descargarlo (las que ya
+            tenías se actualizan, no se duplican).
+          </p>
+          <button type="button" className="btn btn-secondary mt-3" onClick={descargarFechas} disabled={fechas.length === 0}>
+            <CalendarArrowDown size={15} />
+            {fechas.length === 0
+              ? "No tenés fechas próximas"
+              : fechas.length === 1
+              ? "Descargar mi próxima fecha"
+              : `Descargar mis ${fechas.length} próximas fechas`}
+          </button>
+          <p className="hint">
+            También podés llevar una fecha sola desde su materia, con el menú de la fecha.
+          </p>
+        </div>
+      </section>
+
+      {/* ── Accesos ── */}
+      <section className="card overflow-hidden divide-y divide-card-border">
+        <Link href="/materias/importar" className="row-hover flex items-center gap-3 px-5 py-4">
+          <Puzzle size={18} className="text-foreground-muted flex-shrink-0" />
+          <span className="flex-1 min-w-0">
+            <span className="block text-sm font-bold text-foreground">SIU Guaraní</span>
+            <span className="block text-xs text-foreground-muted">Traer o actualizar tus materias y notas con la extensión</span>
+          </span>
+          <ChevronRight size={16} className="text-foreground-subtle flex-shrink-0" />
+        </Link>
+        <Link href="/donar" className="row-hover flex items-center gap-3 px-5 py-4">
+          <Heart size={18} className="text-accent flex-shrink-0" />
+          <span className="flex-1 min-w-0">
+            <span className="block text-sm font-bold text-foreground">
+              {esDonante ? "Estás bancando el proyecto" : "Bancá el proyecto"}
+            </span>
+            <span className="block text-xs text-foreground-muted">
+              {esDonante
+                ? "Gracias. Tu aporte mantiene Monteflori en pie."
+                : "Monteflori es gratis. Las donaciones pagan el hosting y el dominio."}
+            </span>
+          </span>
+          <ChevronRight size={16} className="text-foreground-subtle flex-shrink-0" />
+        </Link>
+      </section>
+    </main>
   );
-}
-
-export default function ConfiguracionPage() {
-  return <AuthGuard><ConfiguracionContent /></AuthGuard>;
 }

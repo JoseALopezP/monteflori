@@ -6,30 +6,15 @@ import Image from "next/image";
 
 export default function NotFound() {
   return (
-    <main
-      className="min-h-screen w-full flex items-center justify-center p-6 text-center"
-      style={{ background: "var(--background)" }}
-    >
-      <div className="flex flex-col items-center gap-4 max-w-sm">
-        <Image src="/logo.png" alt="Monteflori" width={64} height={64} className="rounded-2xl" />
-        <div>
-          <p className="text-5xl font-extrabold" style={{ color: "var(--color-primary)" }}>
-            404
-          </p>
-          <h1 className="text-xl font-bold mt-2" style={{ color: "var(--foreground)" }}>
-            No encontramos esta página
-          </h1>
-          <p className="text-sm mt-1.5" style={{ color: "var(--foreground-muted)" }}>
-            Puede que el link esté mal escrito o que la página ya no exista.
-          </p>
-        </div>
-        <Link
-          href="/"
-          className="mt-1 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all hover:opacity-90"
-          style={{ background: "var(--color-primary)", color: "white" }}
-        >
-          Volver al inicio
-        </Link>
+    <main className="flex-1 min-h-screen flex items-center justify-center p-6 text-center">
+      <div className="flex flex-col items-center max-w-sm">
+        <Image src="/logo.png" alt="" width={56} height={56} className="rounded-2xl" />
+        <p className="font-display tabular text-7xl font-semibold text-primary mt-5 leading-none">404</p>
+        <h1 className="font-display text-2xl font-semibold text-foreground mt-3">Acá no hay nada</h1>
+        <p className="text-sm text-foreground-muted mt-2">
+          Puede que el link esté mal escrito o que la página ya no exista.
+        </p>
+        <Link href="/" className="btn btn-primary mt-6">Volver al inicio</Link>
       </div>
     </main>
   );

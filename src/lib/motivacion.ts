@@ -3,6 +3,7 @@
 
 import { Materia, MensajeMotivacional } from "@/types";
 import { calcularPromedioGeneral, calcularPorcentajeAvance } from "./calculo-notas";
+import { formatearNota } from "./estados";
 
 export function generarMensajeMotivacional(
   materias: Materia[],
@@ -41,7 +42,7 @@ export function generarMensajeMotivacional(
 
   if (porcentaje >= 50) {
     return {
-      texto: `¡Mitad de camino! Ya llevás ${aprobadas.length} materias aprobadas con un promedio de ${promedio.toFixed(1)}. Vas requetebién, seguí así.`,
+      texto: `¡Mitad de camino! Ya llevás ${aprobadas.length} materias aprobadas con un promedio de ${formatearNota(promedio, 1)}. Vas requetebién, seguí así.`,
       emoji: "🎯",
       tipo: "logro",
     };
@@ -58,7 +59,7 @@ export function generarMensajeMotivacional(
   // Promedio alto sin muchas aprobadas
   if (promedio >= 8 && aprobadas.length > 0) {
     return {
-      texto: `Promedio de ${promedio.toFixed(1)} — eso no lo saca cualquiera. Con ${aprobadas.length} materias aprobadas, se nota que la estás remando en serio.`,
+      texto: `Promedio de ${formatearNota(promedio, 1)} — eso no lo saca cualquiera. Con ${aprobadas.length} materias aprobadas, se nota que la estás remando en serio.`,
       emoji: "🔥",
       tipo: "logro",
     };

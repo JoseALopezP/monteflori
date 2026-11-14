@@ -1,7 +1,7 @@
 "use client";
 
 // src/components/dashboard/AvisoCalendar.tsx
-// Dos cosas, ambas apoyadas en el perfil que ya se carga:
+// Dos cosas, ambas apoyadas en el perfil (que llega en tiempo real):
 //
 // 1. El repaso diario: una vez por día, al abrir la app, pide una
 //    reconciliación completa por si quedó algo sin sincronizar.
@@ -18,7 +18,7 @@ import { sincronizarCalendar, tocaReconciliar } from "@/lib/calendarCliente";
 
 export function AvisoCalendar() {
   const { user } = useAuthContext();
-  const { perfil, recargar } = usePerfil(user?.uid ?? null);
+  const { perfil } = usePerfil();
   const yaCorrio = useRef(false);
 
   const conectado = !!perfil?.credenciales_externas?.google_calendar_refresh_token;
@@ -29,39 +29,33 @@ export function AvisoCalendar() {
     if (!conectado) return;
     if (!tocaReconciliar(perfil.uso?.ultima_reconciliacion_calendar)) return;
 
-    // Una sola vez por montaje, aunque el perfil se recargue.
+    // Una sola vez por montaje. El resultado llega solo: el servidor escribe en
+    // el perfil y la suscripción lo trae.
     yaCorrio.current = true;
-
-    sincronizarCalendar(user, { reconciliacion: true }).then(() => {
-      // Refresca el perfil para que el aviso aparezca o desaparezca según
-      // cómo haya salido el repaso.
-      recargar();
-    });
-  }, [user, perfil, conectado, recargar]);
+    sincronizarCalendar(user, { reconciliacion: true });
+  }, [user, perfil, conectado]);
 
   if (!error) return null;
 
   return (
-    <Link
-      href="/configuracion"
-      className="flex items-center gap-3 p-3.5 rounded-2xl border transition-all hover:opacity-85"
-      style={{
-        background: "var(--estado-libre-bg)",
-        borderColor: "var(--color-alert-light)",
-      }}
-    >
-      <AlertTriangle size={18} className="flex-shrink-0" style={{ color: "var(--color-alert)" }} />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold" style={{ color: "var(--color-alert)" }}>
-          {error.requiere_reconectar
-            ? "Google Calendar se desconectó"
-            : "No pudimos sincronizar con Google Calendar"}
-        </p>
-        <p className="text-xs mt-0.5" style={{ color: "var(--foreground-muted)" }}>
-          {error.mensaje} Tocá para reconectar o dar de baja la sincronización.
-        </p>
-      </div>
-      <ChevronRight size={16} className="flex-shrink-0" style={{ color: "var(--color-alert)" }} />
-    </Link>
+    <div className="max-w-5xl w-full mx-auto px-4 md:px-6 pt-4">
+      <Link
+        href="/configuracion#calendar"
+        className="notice notice-error items-center transition-opacity hover:opacity-85"
+      >
+        <AlertTriangle size={18} className="flex-shrink-0" />
+        <span className="flex-1 min-w-0">
+          <span className="block font-bold">
+            {error.requiere_reconectar
+              ? "Google Calendar se desconectó"
+              : "No pudimos sincronizar con Google Calendar"}
+          </span>
+          <span className="block text-xs text-foreground-muted mt-0.5">
+            {error.mensaje} Tocá para solucionarlo.
+          </span>
+        </span>
+        <ChevronRight size={16} className="flex-shrink-0" />
+      </Link>
+    </div>
   );
 }

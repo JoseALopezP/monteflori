@@ -3,106 +3,106 @@
 // Monteflori Sync en modo desarrollador — Chrome no permite instalar
 // extensiones "sueltas" de otra forma fuera de la Chrome Web Store.
 
+import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  Download, Puzzle, ToggleRight, FolderOpen, CheckCircle2, ArrowLeft,
-} from "lucide-react";
+import Image from "next/image";
+import { ChevronLeft, Download, ShieldCheck } from "lucide-react";
+
+export const metadata: Metadata = {
+  title: "Instalar Monteflori Sync",
+  description: "Extensión de Chrome que trae tus materias y notas desde SIU Guaraní a Monteflori.",
+};
 
 const PASOS = [
   {
-    icono: Download,
     titulo: "Descargá el archivo",
-    detalle: "Hacé click en el botón de abajo para bajar el .zip de la extensión.",
+    detalle: "Con el botón de arriba. Se baja un .zip a tu carpeta de Descargas.",
   },
   {
-    icono: FolderOpen,
     titulo: "Descomprimilo",
-    detalle: "Click derecho sobre el .zip descargado → \"Extraer todo\" (o tu descompresor habitual). Guardá la carpeta en un lugar fijo — Chrome la va a leer siempre desde ahí.",
+    detalle:
+      "Click derecho sobre el .zip → “Extraer todo”. Dejá la carpeta en un lugar donde no la vayas a borrar: Chrome la lee siempre desde ahí.",
   },
   {
-    icono: Puzzle,
-    titulo: "Abrí chrome://extensions",
-    detalle: "Pegá esa dirección en la barra de Chrome y presioná Enter.",
+    titulo: "Abrí la página de extensiones",
+    detalle: "Copiá chrome://extensions, pegalo en la barra de direcciones y apretá Enter.",
+    codigo: "chrome://extensions",
   },
   {
-    icono: ToggleRight,
-    titulo: "Activá el \"Modo de desarrollador\"",
-    detalle: "Es un interruptor arriba a la derecha de la página.",
+    titulo: "Activá el “Modo de desarrollador”",
+    detalle: "Es un interruptor arriba a la derecha de esa página.",
   },
   {
-    icono: CheckCircle2,
     titulo: "Cargá la extensión",
-    detalle: "Click en \"Cargar descomprimida\" y seleccioná la carpeta que descomprimiste (la que tiene el archivo manifest.json adentro).",
+    detalle:
+      "Tocá “Cargar descomprimida” y elegí la carpeta que descomprimiste (la que tiene adentro el archivo manifest.json).",
   },
 ];
 
 export default function ExtensionPage() {
   return (
-    <div className="min-h-screen" style={{ background: "var(--background)" }}>
-      <div className="max-w-2xl mx-auto px-4 py-10">
-        <Link href="/" className="text-sm mb-4 flex items-center gap-1 hover:underline"
-          style={{ color: "var(--foreground-muted)" }}>
-          <ArrowLeft size={14} /> Volver a Monteflori
-        </Link>
+    <main className="page page-narrow !pb-16">
+      <Link
+        href="/materias/importar"
+        className="inline-flex items-center gap-0.5 -ml-1 mb-6 text-sm font-semibold text-foreground-muted hover:text-foreground transition-colors"
+      >
+        <ChevronLeft size={16} /> Volver a Monteflori
+      </Link>
 
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
-            style={{ background: "var(--color-primary)" }}>
-            <Puzzle size={30} color="white" />
-          </div>
-          <h1 className="text-2xl font-extrabold mb-2" style={{ color: "var(--foreground)" }}>
-            Instalá Monteflori Sync
-          </h1>
-          <p className="text-sm max-w-md mx-auto" style={{ color: "var(--foreground-muted)" }}>
-            Esta extensión de Chrome lee tus materias y notas directamente desde el portal de tu
-            universidad (SIU Guaraní) para que no tengas que cargarlas a mano. No instala ningún
-            programa en tu computadora — solo vive dentro del navegador.
+      <div className="flex items-center gap-3 mb-4">
+        <Image src="/logo.png" alt="" width={48} height={48} className="rounded-xl" priority />
+        <span className="eyebrow">Extensión para Chrome, Edge y Brave</span>
+      </div>
+      <h1 className="page-title">Instalá Monteflori Sync</h1>
+      <p className="text-foreground-muted mt-3 max-w-xl">
+        Lee tus materias, notas y correlativas directo desde SIU Guaraní, para que no tengas que cargarlas a
+        mano. Vive dentro del navegador: no instala ningún programa en tu computadora.
+      </p>
+
+      <a
+        href="/downloads/monteflori-sync-extension.zip"
+        download
+        className="btn btn-primary btn-lg mt-6"
+      >
+        <Download size={17} /> Descargar la extensión
+      </a>
+
+      <h2 className="section-title mt-10 mb-3">Cómo instalarla, paso a paso</h2>
+      <ol className="card divide-y divide-card-border overflow-hidden">
+        {PASOS.map((paso, i) => (
+          <li key={paso.titulo} className="flex gap-4 p-5">
+            <span className="flex-shrink-0 w-8 h-8 rounded-full bg-primary-soft text-primary font-display font-semibold flex items-center justify-center tabular">
+              {i + 1}
+            </span>
+            <div className="min-w-0">
+              <h3 className="font-bold text-foreground">{paso.titulo}</h3>
+              <p className="text-sm text-foreground-muted mt-0.5">{paso.detalle}</p>
+              {paso.codigo && (
+                <code className="inline-block mt-2 px-2.5 py-1 rounded-[var(--radius-sm)] bg-background-alt text-sm font-semibold text-foreground select-all">
+                  {paso.codigo}
+                </code>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      <div className="notice mt-4">
+        <ShieldCheck size={18} className="flex-shrink-0 mt-0.5 text-primary" />
+        <div>
+          <p className="font-bold text-foreground">¿Es seguro? ¿Por qué “modo de desarrollador”?</p>
+          <p className="mt-1">
+            Chrome solo deja instalar extensiones desde su tienda o activando ese modo a mano. Es un paso
+            único. La extensión solo funciona en portales universitarios, lee lo que vos ya ves en pantalla y
+            nunca conoce tu contraseña de la facultad.
           </p>
         </div>
-
-        <div className="text-center mb-8">
-          <a
-            href="/downloads/monteflori-sync-extension.zip"
-            download
-            className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl font-bold text-sm transition-all hover:opacity-90 active:scale-95"
-            style={{ background: "var(--color-primary)", color: "white", boxShadow: "var(--shadow-md)" }}
-          >
-            <Download size={16} /> Descargar extensión (.zip)
-          </a>
-        </div>
-
-        <div className="rounded-2xl border overflow-hidden" style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
-          {PASOS.map((paso, i) => {
-            const Icono = paso.icono;
-            return (
-              <div key={paso.titulo} className="flex gap-4 p-5"
-                style={{ borderBottom: i < PASOS.length - 1 ? "1px solid var(--color-card-border)" : "none" }}>
-                <div className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm"
-                  style={{ background: "var(--background-alt)", color: "var(--color-primary)" }}>
-                  {i + 1}
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm flex items-center gap-2 mb-1" style={{ color: "var(--foreground)" }}>
-                    <Icono size={14} style={{ color: "var(--color-secondary)" }} />
-                    {paso.titulo}
-                  </h3>
-                  <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-                    {paso.detalle}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="rounded-2xl p-5 border mt-4 text-sm"
-          style={{ background: "var(--background-alt)", borderColor: "var(--color-card-border)", color: "var(--foreground-muted)" }}>
-          <strong style={{ color: "var(--foreground)" }}>¿Por qué modo desarrollador?</strong> Chrome
-          no permite instalar extensiones sueltas por seguridad — solo desde la Chrome Web Store o
-          activando este modo manualmente. Es un paso único; después la extensión queda instalada
-          igual que cualquier otra.
-        </div>
       </div>
-    </div>
+
+      <div className="mt-8 flex flex-wrap items-center gap-3">
+        <Link href="/materias/importar" className="btn btn-secondary">Ya la instalé, seguir</Link>
+        <span className="text-sm text-foreground-subtle">Después solo queda sincronizar desde el portal de tu facultad.</span>
+      </div>
+    </main>
   );
 }

@@ -32,6 +32,7 @@ service cloud.firestore {
         && listaOpcionalOk(d, 'evaluaciones', 200)
         && listaOpcionalOk(d, 'fechas_importantes', 200)
         && listaOpcionalOk(d, 'correlativas_requisito', 100)
+        && listaOpcionalOk(d, 'actos_academicos', 60)
         && listaOpcionalOk(d, 'carreras_vinculadas', 20);
     }
 

@@ -23,6 +23,7 @@ import {
   FechaSincronizable,
   MapaEventos,
 } from "@/lib/calendar-sync";
+import { horarioEvento } from "@/lib/calendar-fechas";
 import { ErrorCalendar } from "@/types";
 
 const bodySchema = z
@@ -284,14 +285,12 @@ async function llamarGoogle(
 }
 
 function cuerpoEvento(fecha: FechaSincronizable) {
-  const inicio = new Date(fecha.fecha);
-  const fin = new Date(inicio.getTime() + 2 * 60 * 60 * 1000);
-
   return {
     summary: tituloEvento(fecha),
     description: descripcionEvento(fecha),
-    start: { dateTime: inicio.toISOString(), timeZone: ZONA },
-    end: { dateTime: fin.toISOString(), timeZone: ZONA },
+    // La hora se manda como la cargó el usuario, con la zona al lado: no se
+    // convierte en el servidor (ver calendar-fechas.ts).
+    ...horarioEvento(fecha.fecha, ZONA),
     reminders: {
       useDefault: false,
       overrides: [

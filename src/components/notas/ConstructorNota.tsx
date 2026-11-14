@@ -1,37 +1,30 @@
 "use client";
 
 // src/components/notas/ConstructorNota.tsx
-// Constructor visual de la fórmula de nota final: arrastrás cada tipo de
-// evaluación (parcial, TP, coloquio, final...) al grupo que corresponda,
-// cada grupo tiene un peso % y un método para combinar sus notas. Con eso
-// se arma la fórmula, sin escribir nada.
+// Constructor visual de la fórmula de nota final: cada tipo de evaluación
+// (parcial, TP, coloquio, final...) se arrastra al grupo que corresponda; cada
+// grupo tiene un peso % y una forma de combinar sus notas. Con eso se arma la
+// fórmula, sin escribir nada.
 
 import { useMemo, useState } from "react";
 import {
   DndContext, useDraggable, useDroppable, DragEndEvent,
-  PointerSensor, TouchSensor, useSensor, useSensors, DragOverlay, DragStartEvent,
+  PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, DragOverlay, DragStartEvent,
 } from "@dnd-kit/core";
-import {
-  X, Plus, RotateCcw, Trash2, Loader2, Sparkles, GripVertical,
-} from "lucide-react";
-import { GrupoNota, TipoEvaluacion, ConfiguracionNota, Evaluacion, MetodoGrupo } from "@/types";
-import { calcularNotaGrupos, gruposPorDefecto } from "@/lib/calculo-notas";
-
-const TIPOS_INFO: Record<TipoEvaluacion, { label: string; color: string }> = {
-  parcial: { label: "Parcial", color: "#2196a3" },
-  recuperatorio: { label: "Recuperatorio", color: "#8b5cf6" },
-  tp: { label: "Trabajo práctico", color: "#059669" },
-  coloquio: { label: "Coloquio", color: "#d4a017" },
-  final: { label: "Final", color: "#52796f" },
-  otro: { label: "Otro", color: "#64748b" },
-};
+import { Plus, RotateCcw, Trash2, GripVertical, SlidersHorizontal } from "lucide-react";
+import { Modal } from "@/components/ui/Modal";
+import { Campo, Spinner } from "@/components/ui/kit";
+import { useToast } from "@/components/ui/Feedback";
+import { GrupoNota, TipoEvaluacion, ConfiguracionNota, Evaluacion, Materia, MetodoGrupo } from "@/types";
+import { calcularResultadoMateria, gruposPorDefecto, resolverEvaluacionesEfectivas } from "@/lib/calculo-notas";
+import { TIPOS_EVALUACION, formatearNota } from "@/lib/estados";
 
 const TODOS_TIPOS: TipoEvaluacion[] = ["parcial", "recuperatorio", "tp", "coloquio", "final", "otro"];
 
 const METODOS: { value: MetodoGrupo; label: string }[] = [
-  { value: "promedio", label: "Promedio" },
-  { value: "mejor_nota", label: "Mejor nota" },
-  { value: "ultima_nota", label: "Última nota" },
+  { value: "promedio", label: "Promedio de todas" },
+  { value: "mejor_nota", label: "La mejor nota" },
+  { value: "ultima_nota", label: "La última nota" },
 ];
 
 const BANCO_ID = "banco";
@@ -43,27 +36,27 @@ interface ConstructorNotaProps {
   onCerrar: () => void;
 }
 
-function Chip({ tipo }: { tipo: TipoEvaluacion }) {
+function Chip({ tipo, flotando }: { tipo: TipoEvaluacion; flotando?: boolean }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `chip-${tipo}`,
     data: { tipo },
   });
-  const info = TIPOS_INFO[tipo];
+  const info = TIPOS_EVALUACION[tipo];
   return (
     <button
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
+      ref={flotando ? undefined : setNodeRef}
+      {...(flotando ? {} : listeners)}
+      {...(flotando ? {} : attributes)}
       type="button"
-      className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold cursor-grab active:cursor-grabbing touch-none select-none transition-opacity"
+      className="inline-flex items-center gap-1 pl-1.5 pr-3 py-1.5 rounded-full text-xs font-bold bg-card border-[1.5px] cursor-grab active:cursor-grabbing touch-none select-none"
       style={{
-        background: info.color + "26",
         color: info.color,
-        border: `1.5px solid ${info.color}55`,
-        opacity: isDragging ? 0.3 : 1,
+        borderColor: info.color,
+        opacity: isDragging && !flotando ? 0.3 : 1,
+        boxShadow: flotando ? "var(--shadow-md)" : undefined,
       }}
     >
-      <GripVertical size={11} style={{ opacity: 0.5 }} />
+      <GripVertical size={13} className="opacity-50" />
       {info.label}
     </button>
   );
@@ -74,16 +67,14 @@ function DropZone({ id, chips, mensajeVacio }: { id: string; chips: TipoEvaluaci
   return (
     <div
       ref={setNodeRef}
-      className="flex flex-wrap gap-1.5 min-h-12 p-2.5 rounded-xl transition-colors"
+      className="flex flex-wrap items-center gap-1.5 min-h-[3.25rem] p-2.5 rounded-[var(--radius-md)] border-[1.5px] border-dashed transition-colors"
       style={{
-        background: isOver ? "var(--estado-aprobada-bg)" : "var(--background-alt)",
-        border: `1.5px dashed ${isOver ? "var(--estado-aprobada)" : "var(--color-card-border)"}`,
+        background: isOver ? "var(--color-primary-soft)" : "var(--background-alt)",
+        borderColor: isOver ? "var(--color-primary)" : "var(--color-card-border)",
       }}
     >
       {chips.length === 0 ? (
-        <span className="text-xs px-1 py-1.5" style={{ color: "var(--foreground-subtle)" }}>
-          {mensajeVacio}
-        </span>
+        <span className="text-xs text-foreground-subtle px-1">{mensajeVacio}</span>
       ) : (
         chips.map((t) => <Chip key={t} tipo={t} />)
       )}
@@ -92,17 +83,20 @@ function DropZone({ id, chips, mensajeVacio }: { id: string; chips: TipoEvaluaci
 }
 
 export function ConstructorNota({ config, evaluaciones, onGuardar, onCerrar }: ConstructorNotaProps) {
+  const toast = useToast();
   const [grupos, setGrupos] = useState<GrupoNota[]>(
     config.grupos && config.grupos.length > 0 ? config.grupos : gruposPorDefecto()
   );
-  const [notaAprobar, setNotaAprobar] = useState(config.nota_aprobar);
-  const [notaPromocionar, setNotaPromocionar] = useState(config.nota_promocionar);
+  const [notaAprobar, setNotaAprobar] = useState(String(config.nota_aprobar));
+  const [notaPromocionar, setNotaPromocionar] = useState(String(config.nota_promocionar));
   const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [chipActivo, setChipActivo] = useState<TipoEvaluacion | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 6 } })
+    useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 6 } }),
+    useSensor(KeyboardSensor)
   );
 
   const tiposAsignados = new Set(grupos.flatMap((g) => g.tipos));
@@ -110,8 +104,21 @@ export function ConstructorNota({ config, evaluaciones, onGuardar, onCerrar }: C
   const pesoTotal = grupos.reduce((acc, g) => acc + (g.peso || 0), 0);
   const pesoOk = Math.abs(pesoTotal - 100) < 0.01;
 
-  const previewNota = useMemo(() => calcularNotaGrupos(evaluaciones, grupos), [evaluaciones, grupos]);
-  const hayNotasCargadas = evaluaciones.some((e) => e.nota !== null && e.nota !== undefined);
+  // Las reemplazadas por un recuperatorio no cuentan.
+  const efectivas = useMemo(() => resolverEvaluacionesEfectivas(evaluaciones), [evaluaciones]);
+  const conNota = efectivas.filter((e) => e.nota !== null && e.nota !== undefined);
+  const hayNotas = conNota.length > 0;
+  const previewNota = useMemo(
+    () =>
+      calcularResultadoMateria({
+        evaluaciones,
+        configuracion_nota: { ...config, sistema: "grupos_ponderados", grupos },
+      } as Materia).promedio_actual,
+    [evaluaciones, config, grupos]
+  );
+  // Notas cargadas cuyo tipo no está en ningún grupo: hoy no cuentan.
+  const tiposAfuera = Array.from(new Set(conNota.map((e) => e.tipo))).filter((t) => !tiposAsignados.has(t));
+  const algunaCuenta = conNota.some((e) => tiposAsignados.has(e.tipo));
 
   function handleDragStart(e: DragStartEvent) {
     setChipActivo((e.active.data.current?.tipo as TipoEvaluacion) ?? null);
@@ -131,205 +138,175 @@ export function ConstructorNota({ config, evaluaciones, onGuardar, onCerrar }: C
     });
   }
 
-  function agregarGrupo() {
-    setGrupos((prev) => [
-      ...prev,
-      { id: `grupo_${Date.now()}`, nombre: "Nuevo grupo", peso: 0, tipos: [], metodo: "promedio" },
-    ]);
-  }
-
-  function eliminarGrupo(id: string) {
-    setGrupos((prev) => prev.filter((g) => g.id !== id));
-  }
-
   function actualizarGrupo(id: string, cambios: Partial<GrupoNota>) {
     setGrupos((prev) => prev.map((g) => (g.id === id ? { ...g, ...cambios } : g)));
   }
 
-  function restaurarDefault() {
-    setGrupos(gruposPorDefecto());
-  }
-
   async function handleGuardar() {
+    const aprobar = Number(notaAprobar.replace(",", "."));
+    const promocionar = Number(notaPromocionar.replace(",", "."));
+    if (!(aprobar >= 1 && aprobar <= 10) || !(promocionar >= 1 && promocionar <= 10)) {
+      setError("Las notas para aprobar y promocionar tienen que estar entre 1 y 10.");
+      return;
+    }
+    if (promocionar < aprobar) {
+      setError("La nota para promocionar no puede ser menor que la de aprobar.");
+      return;
+    }
+    if (!pesoOk) {
+      setError(`Los porcentajes suman ${pesoTotal}%. Ajustalos para que den 100%.`);
+      return;
+    }
+    setError(null);
     setGuardando(true);
     try {
       await onGuardar({
         ...config,
         sistema: "grupos_ponderados",
-        grupos,
-        nota_aprobar: notaAprobar,
-        nota_promocionar: notaPromocionar,
+        grupos: grupos.map((g) => ({ ...g, nombre: g.nombre.trim() || "Grupo" })),
+        nota_aprobar: aprobar,
+        nota_promocionar: promocionar,
       });
+      toast("Fórmula guardada");
       onCerrar();
-    } finally {
+    } catch {
+      setError("No se pudo guardar. Intentá de nuevo.");
       setGuardando(false);
     }
   }
 
-  const inputStyle = {
-    background: "var(--color-card)",
-    border: "1.5px solid var(--color-card-border)",
-    color: "var(--foreground)",
-    outline: "none",
-    borderRadius: "var(--radius-md)",
-    padding: "0.4rem 0.6rem",
-    fontSize: "var(--font-size-sm)",
-  };
-
   return (
-    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4"
-      style={{ background: "rgba(0,0,0,0.5)" }}>
-      <div className="w-full sm:max-w-2xl max-h-[92vh] sm:max-h-[85vh] flex flex-col rounded-t-3xl sm:rounded-2xl overflow-hidden animate-fade-in"
-        style={{ background: "var(--color-card)" }}>
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b flex-shrink-0"
-          style={{ borderColor: "var(--color-card-border)" }}>
-          <div>
-            <h2 className="font-bold text-base flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-              <Sparkles size={16} style={{ color: "var(--color-primary)" }} />
-              Cómo se calcula tu nota
-            </h2>
-            <p className="text-xs mt-0.5" style={{ color: "var(--foreground-muted)" }}>
-              Arrastrá cada tipo de evaluación al grupo que corresponda
-            </p>
-          </div>
-          <button onClick={onCerrar} className="p-2 rounded-xl hover:opacity-70 transition-opacity flex-shrink-0"
-            style={{ color: "var(--foreground-muted)" }} aria-label="Cerrar">
-            <X size={18} />
+    <Modal
+      titulo="Cómo se calcula tu nota"
+      descripcion="Armá grupos, dales un porcentaje y arrastrá adentro los tipos de evaluación que cuentan en cada uno."
+      icono={<SlidersHorizontal size={20} />}
+      onCerrar={onCerrar}
+      ancho="lg"
+      pie={
+        <>
+          <button type="button" className="btn btn-ghost mr-auto" onClick={() => setGrupos(gruposPorDefecto())}
+            title="Volver a parciales 50% + TP 20% + final 30%">
+            <RotateCcw size={14} /> <span className="hidden sm:inline">Restablecer</span>
           </button>
-        </div>
-
-        {/* Contenido scrolleable */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-
-            {/* Banco de tipos sin asignar */}
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: "var(--foreground-muted)" }}>
-                Sin asignar
-              </p>
-              <DropZone id={BANCO_ID} chips={tiposEnBanco} mensajeVacio="Todos los tipos están asignados a un grupo" />
-            </div>
-
-            {/* Grupos */}
-            <div className="space-y-3">
-              {grupos.map((g) => (
-                <div key={g.id} className="rounded-2xl p-3.5 border" style={{ borderColor: "var(--color-card-border)" }}>
-                  <div className="flex items-center gap-2 mb-2.5 flex-wrap">
-                    <input
-                      value={g.nombre}
-                      onChange={(e) => actualizarGrupo(g.id, { nombre: e.target.value })}
-                      className="font-bold text-sm flex-1 min-w-24 bg-transparent outline-none"
-                      style={{ color: "var(--foreground)" }}
-                    />
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={g.peso}
-                        onChange={(e) => actualizarGrupo(g.id, { peso: Number(e.target.value) })}
-                        style={{ ...inputStyle, width: "3.5rem", textAlign: "center" }}
-                      />
-                      <span className="text-xs font-semibold" style={{ color: "var(--foreground-muted)" }}>%</span>
-                    </div>
-                    <select
-                      value={g.metodo}
-                      onChange={(e) => actualizarGrupo(g.id, { metodo: e.target.value as MetodoGrupo })}
-                      style={{ ...inputStyle, fontSize: "11px", padding: "0.4rem" }}
-                    >
-                      {METODOS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                    </select>
-                    <button onClick={() => eliminarGrupo(g.id)}
-                      className="p-1.5 rounded-lg hover:opacity-70 transition-opacity"
-                      style={{ color: "var(--color-alert)" }} aria-label={`Eliminar grupo ${g.nombre}`}>
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                  <DropZone id={`grupo-${g.id}`} chips={g.tipos} mensajeVacio="Arrastrá acá tipos de evaluación" />
-                </div>
-              ))}
-            </div>
-
-            <DragOverlay>
-              {chipActivo ? <Chip tipo={chipActivo} /> : null}
-            </DragOverlay>
-          </DndContext>
-
-          <button onClick={agregarGrupo}
-            className="w-full py-2.5 rounded-xl text-sm font-semibold border-2 border-dashed transition-all hover:opacity-75 flex items-center justify-center gap-1.5"
-            style={{ borderColor: "var(--color-card-border)", color: "var(--foreground-muted)" }}>
-            <Plus size={14} /> Agregar grupo
-          </button>
-
-          {/* Suma de pesos */}
-          <div className="flex items-center justify-between px-1">
-            <span className="text-xs font-semibold" style={{ color: "var(--foreground-muted)" }}>
-              Suma de pesos
-            </span>
-            <span className="text-xs font-bold px-2 py-0.5 rounded-full"
-              style={{
-                background: pesoOk ? "var(--estado-aprobada-bg)" : "var(--estado-libre-bg)",
-                color: pesoOk ? "var(--estado-aprobada)" : "var(--color-alert)",
-              }}>
-              {pesoTotal}% {pesoOk ? "✓" : `(debería ser 100%)`}
-            </span>
-          </div>
-
-          {/* Vista previa */}
-          <div className="rounded-xl p-3.5" style={{ background: "var(--background-alt)" }}>
-            <p className="text-xs font-semibold mb-1" style={{ color: "var(--foreground-muted)" }}>
-              Vista previa con tus notas actuales
-            </p>
-            <p className="text-2xl font-extrabold" style={{ color: hayNotasCargadas ? "var(--color-primary)" : "var(--foreground-subtle)" }}>
-              {hayNotasCargadas ? previewNota.toFixed(2) : "—"}
-            </p>
-          </div>
-
-          {/* Umbrales */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>
-                Nota para aprobar
-              </label>
-              <input type="number" min={1} max={10} step={0.5} value={notaAprobar}
-                onChange={(e) => setNotaAprobar(Number(e.target.value))}
-                style={{ ...inputStyle, width: "100%" }} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>
-                Nota para promocionar
-              </label>
-              <input type="number" min={1} max={10} step={0.5} value={notaPromocionar}
-                onChange={(e) => setNotaPromocionar(Number(e.target.value))}
-                style={{ ...inputStyle, width: "100%" }} />
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center gap-2 px-5 py-4 border-t flex-shrink-0"
-          style={{ borderColor: "var(--color-card-border)" }}>
-          <button onClick={restaurarDefault}
-            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border transition-all hover:opacity-75"
-            style={{ borderColor: "var(--color-card-border)", color: "var(--foreground-muted)" }}>
-            <RotateCcw size={13} /> <span className="hidden sm:inline">Restaurar</span>
-          </button>
-          <div className="flex-1" />
-          <button onClick={onCerrar}
-            className="px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all hover:opacity-75"
-            style={{ borderColor: "var(--color-card-border)", color: "var(--foreground-muted)" }}>
-            Cancelar
-          </button>
-          <button onClick={handleGuardar} disabled={guardando}
-            className="px-5 py-2.5 rounded-xl text-sm font-bold transition-all hover:opacity-90 flex items-center gap-2"
-            style={{ background: "var(--color-primary)", color: "white" }}>
-            {guardando && <Loader2 size={14} className="animate-spin" />}
+          <button type="button" className="btn btn-secondary" onClick={onCerrar}>Cancelar</button>
+          <button type="button" className="btn btn-primary" onClick={handleGuardar} disabled={guardando}>
+            {guardando && <Spinner size={14} />}
             {guardando ? "Guardando..." : "Guardar"}
           </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {error && <div className="notice notice-error" role="alert">{error}</div>}
+
+        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <div className="space-y-3">
+            {grupos.map((g) => (
+              <div key={g.id} className="rounded-[var(--radius-lg)] border border-card-border p-3.5">
+                <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+                  <input
+                    value={g.nombre}
+                    onChange={(e) => actualizarGrupo(g.id, { nombre: e.target.value })}
+                    className="input input-sm flex-1 min-w-32 font-bold"
+                    aria-label="Nombre del grupo"
+                    maxLength={40}
+                  />
+                  <label className="flex items-center gap-1 text-sm font-bold text-foreground-muted">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={g.peso}
+                      onChange={(e) => actualizarGrupo(g.id, { peso: Math.max(0, Math.min(100, Number(e.target.value))) })}
+                      className="input input-sm no-spin tabular text-center font-bold"
+                      style={{ width: "3.75rem" }}
+                      aria-label={`Porcentaje de ${g.nombre}`}
+                    />
+                    %
+                  </label>
+                  <select
+                    value={g.metodo}
+                    onChange={(e) => actualizarGrupo(g.id, { metodo: e.target.value as MetodoGrupo })}
+                    className="input input-sm"
+                    style={{ width: "auto" }}
+                    aria-label={`Cómo se combinan las notas de ${g.nombre}`}
+                  >
+                    {METODOS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setGrupos((prev) => prev.filter((x) => x.id !== g.id))}
+                    className="icon-btn icon-btn-sm icon-btn-danger"
+                    aria-label={`Eliminar grupo ${g.nombre}`}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+                <DropZone id={`grupo-${g.id}`} chips={g.tipos} mensajeVacio="Arrastrá acá los tipos de evaluación de este grupo" />
+              </div>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() =>
+              setGrupos((prev) => [
+                ...prev,
+                { id: `grupo_${Date.now()}`, nombre: "Nuevo grupo", peso: 0, tipos: [], metodo: "promedio" },
+              ])
+            }
+            className="btn btn-secondary btn-block border-dashed"
+          >
+            <Plus size={15} /> Agregar grupo
+          </button>
+
+          <div>
+            <p className="label">No cuentan para la nota</p>
+            <DropZone id={BANCO_ID} chips={tiposEnBanco} mensajeVacio="Todos los tipos están en algún grupo" />
+          </div>
+
+          <DragOverlay>{chipActivo ? <Chip tipo={chipActivo} flotando /> : null}</DragOverlay>
+        </DndContext>
+
+        {tiposAfuera.length > 0 && (
+          <div className="notice notice-warn">
+            <span>
+              Tenés notas de tipo{" "}
+              <strong>{tiposAfuera.map((t) => TIPOS_EVALUACION[t].label).join(", ")}</strong> que no están en
+              ningún grupo.{" "}
+              {algunaCuenta
+                ? "Así como está, no cuentan para la nota final."
+                : "Mientras ninguna nota caiga en un grupo, se promedian todas."}{" "}
+              Arrastrá ese tipo a un grupo para que cuente.
+            </span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className={`notice ${pesoOk ? "notice-success" : "notice-error"} flex-col !gap-0.5`}>
+            <span className="text-xs font-bold opacity-80">Los porcentajes suman</span>
+            <span className="font-display tabular text-2xl font-semibold">{pesoTotal}%</span>
+            {!pesoOk && <span className="text-xs font-semibold">Tienen que dar 100%</span>}
+          </div>
+          <div className="notice flex-col !gap-0.5">
+            <span className="text-xs font-bold opacity-80">Con tus notas actuales da</span>
+            <span className="font-display tabular text-2xl font-semibold text-foreground">
+              {hayNotas ? formatearNota(previewNota) : "—"}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Campo label="Nota para aprobar" htmlFor="cn-aprobar">
+            <input id="cn-aprobar" className="input tabular" inputMode="decimal" value={notaAprobar}
+              onChange={(e) => setNotaAprobar(e.target.value)} />
+          </Campo>
+          <Campo label="Nota para promocionar" htmlFor="cn-promocionar">
+            <input id="cn-promocionar" className="input tabular" inputMode="decimal" value={notaPromocionar}
+              onChange={(e) => setNotaPromocionar(e.target.value)} />
+          </Campo>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

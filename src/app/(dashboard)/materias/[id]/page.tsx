@@ -1,547 +1,538 @@
 "use client";
 
 // src/app/(dashboard)/materias/[id]/page.tsx
-// Detalle completo de materia: evaluaciones, fechas importantes, notas y edición
+// Todo sobre una materia: cómo voy, mis notas, las fechas que vienen, qué
+// necesito para cursarla y qué me habilita, y lo que cuentan otros estudiantes.
 
-import { useState, useEffect, use } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import * as Dropdown from "@radix-ui/react-dropdown-menu";
 import {
-  BookOpen, Calendar, Plus, Trash2, Edit2, Clock, CheckCircle,
-  AlertCircle, Star, Lock, Award, ChevronLeft, Loader2, Settings2
+  Award, CalendarArrowDown, CalendarDays, CalendarPlus, Check, CircleDashed, GitBranch, MoreVertical,
+  Pencil, Plus, SearchX, SlidersHorizontal, Trash2,
 } from "lucide-react";
-import { AuthGuard } from "@/components/auth/AuthGuard";
 import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useMaterias } from "@/hooks/useMaterias";
-import { useCarreras } from "@/hooks/useCarreras";
+import { useCarreraActivaContext } from "@/components/dashboard/CarreraActivaProvider";
+import { useConfirm, useToast } from "@/components/ui/Feedback";
+import { EmptyState, Esqueleto, NotaEditable, PageHeader } from "@/components/ui/kit";
+import { AgregarNotaModal } from "@/components/notas/AgregarNotaModal";
+import { FechaModal } from "@/components/notas/FechaModal";
+import { ConstructorNota } from "@/components/notas/ConstructorNota";
+import { Comentarios } from "@/components/comentarios/Comentarios";
 import {
-  updateMateria,
-  addEvaluacion,
-  updateEvaluacion,
-  deleteEvaluacion,
-  addFechaImportante,
-  deleteFechaImportante,
-  deleteMateria,
+  updateMateria, updateEvaluacion, deleteEvaluacion, deleteFechaImportante, deleteMateria,
 } from "@/lib/firestore";
 import { calcularResultadoMateria, evaluacionRecuperadaPor, resumenFormula } from "@/lib/calculo-notas";
-import { AgregarNotaModal } from "@/components/notas/AgregarNotaModal";
 import { sincronizarCalendar } from "@/lib/calendarCliente";
-import { Comentarios } from "@/components/comentarios/Comentarios";
-import { ConstructorNota } from "@/components/notas/ConstructorNota";
-import { Materia, Evaluacion, FechaImportante, ConfiguracionNota } from "@/types";
-import { format, parseISO } from "date-fns";
-import { es } from "date-fns/locale";
+import { ESTADOS, ESTADOS_ORDEN, colorNota, formatearNota, infoEstado, infoTipo } from "@/lib/estados";
+import { diasHasta, esProxima, etiquetaRelativa, formatearFechaCorta, formatearFechaLarga } from "@/lib/fechas";
+import { descargarIcs, nombreDeArchivo } from "@/lib/ics";
+import { ConfiguracionNota, EstadoMateria, Evaluacion, FechaImportante } from "@/types";
 
-interface PageParams {
-  params: Promise<{ id: string }>;
-}
+type ModalAbierto =
+  | { tipo: "nota"; evaluacion?: Evaluacion }
+  | { tipo: "fecha"; fecha?: FechaImportante }
+  | { tipo: "formula" }
+  | null;
 
-function MateriaDetalleContent({ params }: PageParams) {
-  const { id } = use(params);
+export default function MateriaDetallePage() {
+  const { id } = useParams<{ id: string }>();
   const { user } = useAuthContext();
   const router = useRouter();
+  const toast = useToast();
+  const confirmar = useConfirm();
+  const { materias, loading } = useMaterias();
+  const { carreras } = useCarreraActivaContext();
 
-  const { materias, loading: matLoading } = useMaterias(user?.uid ?? null);
-  const { carreras } = useCarreras(user?.uid ?? null);
+  const [modal, setModal] = useState<ModalAbierto>(null);
+  const [verPasadas, setVerPasadas] = useState(false);
 
   const materia = materias.find((m) => m.id === id);
 
-  const [mostrarConstructor, setMostrarConstructor] = useState(false);
-  const [mostrarAgregarNota, setMostrarAgregarNota] = useState(false);
-  const [editandoVinculoId, setEditandoVinculoId] = useState<string | null>(null);
-
-  const [showFormFecha, setShowFormFecha] = useState(false);
-  const [nombreFecha, setNombreFecha] = useState("");
-  const [tipoFecha, setTipoFecha] = useState<FechaImportante["tipo"]>("parcial");
-  const [fechaStr, setFechaStr] = useState("");
-  const [guardandoFecha, setGuardandoFecha] = useState(false);
-
-  // Edición inline de notas
-  const [editandoEvalId, setEditandoEvalId] = useState<string | null>(null);
-  const [valNotaEdit, setValNotaEdit] = useState<string>("");
-
-  if (matLoading) {
+  if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--background)" }}>
-        <Loader2 size={32} className="animate-spin" style={{ color: "var(--color-primary)" }} />
-      </div>
+      <main className="page page-narrow">
+        <Esqueleto filas={3} alto="h-36" />
+      </main>
     );
   }
 
-  if (!materia) {
+  if (!materia || !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 text-center" style={{ background: "var(--background)" }}>
-        <div>
-          <AlertCircle size={48} className="mx-auto mb-3" style={{ color: "var(--color-alert)" }} />
-          <h1 className="text-xl font-bold mb-2" style={{ color: "var(--foreground)" }}>Materia no encontrada</h1>
-          <Link href="/materias" className="text-sm font-semibold hover:underline" style={{ color: "var(--color-primary)" }}>
-            ← Volver a materias
-          </Link>
-        </div>
-      </div>
+      <main className="page page-narrow">
+        <EmptyState
+          icono={<SearchX size={22} />}
+          titulo="No encontramos esta materia"
+          texto="Puede que la hayas eliminado o que el link esté mal."
+        >
+          <Link href="/materias" className="btn btn-primary">Ver mis materias</Link>
+        </EmptyState>
+      </main>
     );
   }
 
+  const uid = user.uid;
   const resultado = calcularResultadoMateria(materia);
+  const config = materia.configuracion_nota;
+  const tieneNotas = resultado.nota_proyectada !== null;
+  const estado = infoEstado(materia.estado);
 
-  // Handlers para evaluaciones
-  async function handleGuardarNota(materiaId: string, datos: Omit<Evaluacion, "id">) {
-    if (!user?.uid) return;
-    const m = materias.find((mm) => mm.id === materiaId);
-    if (!m) return;
-    await addEvaluacion(user.uid, materiaId, datos, m.evaluaciones);
-  }
+  const fechas = [...(materia.fechas_importantes ?? [])].sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const fechasProximas = fechas.filter((f) => esProxima(f.fecha));
+  const fechasPasadas = fechas.filter((f) => !esProxima(f.fecha)).reverse();
 
-  async function handleCambiarVinculo(evalId: string, recuperaDeId: string) {
-    if (!user?.uid || !materia) return;
-    await updateEvaluacion(
-      user.uid,
-      materia.id,
-      evalId,
-      { recuperatorio_de: recuperaDeId || undefined },
-      materia.evaluaciones
-    );
-    setEditandoVinculoId(null);
-  }
+  const requisitos = (materia.correlativas_requisito ?? [])
+    .map((cid) => materias.find((m) => m.id === cid))
+    .filter((m) => m !== undefined);
+  const habilita = materias.filter((m) => m.correlativas_requisito?.includes(materia.id));
+  const faltan = requisitos.filter((m) => m.estado !== "aprobada" && m.estado !== "regular");
 
-  async function handleGuardarNotaInline(evalId: string) {
-    if (!user?.uid || !materia) return;
-    const nota = valNotaEdit === "" ? null : parseFloat(valNotaEdit);
-    await updateEvaluacion(user.uid, materia.id, evalId, { nota }, materia.evaluaciones);
-    setEditandoEvalId(null);
-  }
+  const carrerasDeLaMateria = carreras.filter((c) => materia.carreras_vinculadas?.includes(c.id));
+  const subtitulo = [
+    materia.codigo_interno,
+    materia.año_plan ? `${materia.año_plan}° año` : null,
+    materia.periodo_cursado,
+    ...carrerasDeLaMateria.map((c) => c.nombre),
+  ].filter(Boolean).join(" · ");
 
-  async function handleEliminarEvaluacion(evalId: string) {
-    if (!user?.uid || !materia) return;
-    await deleteEvaluacion(user.uid, materia.id, evalId, materia.evaluaciones);
-  }
+  const mensajeNota =
+    materia.estado === "aprobada"
+      ? tieneNotas
+        ? `La aprobaste con ${formatearNota(resultado.promedio_actual)}.`
+        : "La aprobaste. Si querés que cuente para tu promedio, cargá la nota."
+      : !tieneNotas
+      ? "Cargá tus notas para ver cómo venís."
+      : resultado.puede_promocionar
+      ? `Estás en nota de promoción (${config.nota_promocionar} o más).`
+      : resultado.puede_aprobar
+      ? `Estás aprobando. Para promocionar necesitás llegar a ${config.nota_promocionar}.`
+      : `Estás por debajo de ${config.nota_aprobar}, la nota para aprobar.`;
 
-  // Handlers para fechas importantes
-  async function handleCrearFecha(e: React.FormEvent) {
-    e.preventDefault();
-    if (!nombreFecha.trim() || !fechaStr || !user?.uid || !materia) return;
-    setGuardandoFecha(true);
+  // ── Acciones ──
+
+  async function cambiarEstado(nuevo: EstadoMateria) {
+    if (!materia || nuevo === materia.estado) return;
     try {
-      await addFechaImportante(user.uid, materia.id, {
-        nombre: nombreFecha.trim(),
-        tipo: tipoFecha,
-        fecha: fechaStr,
-      }, materia.fechas_importantes);
-      setNombreFecha("");
-      setFechaStr("");
-      setShowFormFecha(false);
-      // Sin await: que Google responda no debería demorar el formulario. Si
-      // falla, el servidor lo registra y el aviso aparece en el dashboard.
-      if (user) sincronizarCalendar(user);
-    } finally {
-      setGuardandoFecha(false);
+      await updateMateria(uid, materia.id, { estado: nuevo });
+      toast(`Ahora figura como ${ESTADOS[nuevo].label.toLowerCase()}`);
+    } catch {
+      toast("No se pudo cambiar el estado", "error");
     }
   }
 
-  async function handleEliminarFecha(fechaId: string) {
-    if (!user?.uid || !materia) return;
-    await deleteFechaImportante(user.uid, materia.id, fechaId, materia.fechas_importantes);
-    // La sincronización detecta la fecha faltante y borra su evento de Google.
-    if (user) sincronizarCalendar(user);
-  }
-
-  async function handleCambiarEstado(nuevoEstado: Materia["estado"]) {
-    if (!user?.uid || !materia) return;
-    await updateMateria(user.uid, materia.id, { estado: nuevoEstado });
-  }
-
-  async function handleGuardarFormula(nuevaConfig: ConfiguracionNota) {
-    if (!user?.uid || !materia) return;
-    await updateMateria(user.uid, materia.id, { configuracion_nota: nuevaConfig });
-  }
-
-  async function handleEliminarMateria() {
-    if (!user?.uid || !materia) return;
-    if (confirm(`¿Seguro que querés eliminar ${materia.nombre}? Esta acción no se puede deshacer.`)) {
-      await deleteMateria(user.uid, materia.id);
-      router.push("/materias");
+  async function guardarNota(ev: Evaluacion, nota: number | null) {
+    if (!materia) return;
+    try {
+      await updateEvaluacion(uid, materia.id, ev.id, { nota }, materia.evaluaciones);
+      toast(nota === null ? "Nota borrada" : "Nota guardada");
+    } catch {
+      toast("No se pudo guardar la nota", "error");
     }
   }
 
-  const inputStyle = {
-    background: "var(--background-alt)",
-    border: "1.5px solid var(--color-card-border)",
-    color: "var(--foreground)",
-    outline: "none",
-    borderRadius: "var(--radius-md)",
-    padding: "0.625rem 0.875rem",
-    fontSize: "var(--font-size-sm)",
-    width: "100%",
-  };
+  async function eliminarEvaluacion(ev: Evaluacion) {
+    if (!materia) return;
+    const ok = await confirmar({
+      titulo: `¿Eliminar "${ev.nombre}"?`,
+      mensaje: ev.nota !== null && ev.nota !== undefined
+        ? `Se borra la evaluación junto con su nota (${ev.nota}).`
+        : undefined,
+    });
+    if (!ok) return;
+    try {
+      await deleteEvaluacion(uid, materia.id, ev.id, materia.evaluaciones);
+      toast("Evaluación eliminada");
+    } catch {
+      toast("No se pudo eliminar", "error");
+    }
+  }
+
+  async function eliminarFecha(f: FechaImportante) {
+    if (!materia || !user) return;
+    const ok = await confirmar({
+      titulo: `¿Eliminar "${f.nombre}"?`,
+      mensaje: "Si tenés Google Calendar conectado, también se borra de tu calendario.",
+    });
+    if (!ok) return;
+    try {
+      await deleteFechaImportante(uid, materia.id, f.id, materia.fechas_importantes);
+      // La sincronización detecta la fecha faltante y borra su evento de Google.
+      sincronizarCalendar(user);
+      toast("Fecha eliminada");
+    } catch {
+      toast("No se pudo eliminar", "error");
+    }
+  }
+
+  function llevarAlCalendario(f: FechaImportante) {
+    if (!materia) return;
+    descargarIcs([{ ...f, materiaNombre: materia.nombre }], nombreDeArchivo(`${f.nombre} ${materia.nombre}`));
+    toast("Archivo descargado: abrilo para sumarlo a tu calendario");
+  }
+
+  async function guardarFormula(nueva: ConfiguracionNota) {
+    if (!materia) return;
+    await updateMateria(uid, materia.id, { configuracion_nota: nueva });
+  }
+
+  async function eliminarMateria() {
+    if (!materia || !user) return;
+    const ok = await confirmar({
+      titulo: `¿Eliminar ${materia.nombre}?`,
+      mensaje: "Se borran también sus notas y fechas. No se puede deshacer.",
+      accion: "Eliminar materia",
+    });
+    if (!ok) return;
+    try {
+      await deleteMateria(uid, materia.id, materias);
+      // Sus fechas ya no existen: que también se vayan de Google Calendar.
+      sincronizarCalendar(user);
+      toast("Materia eliminada");
+      router.replace("/materias");
+    } catch {
+      toast("No se pudo eliminar la materia", "error");
+    }
+  }
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--background)" }}>
-      <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+    <main className="page page-narrow space-y-4">
+      <PageHeader
+        titulo={materia.nombre}
+        subtitulo={subtitulo || undefined}
+        volver={{ href: "/materias", label: "Materias" }}
+        acciones={
+          <>
+            <Link href={`/materias/${materia.id}/editar`} className="btn btn-secondary">
+              <Pencil size={14} /> Editar
+            </Link>
+            <Dropdown.Root>
+              <Dropdown.Trigger className="icon-btn border border-card-border bg-card" aria-label="Más opciones">
+                <MoreVertical size={18} />
+              </Dropdown.Trigger>
+              <Dropdown.Portal>
+                <Dropdown.Content className="menu" align="end" sideOffset={6}>
+                  <Dropdown.Item className="menu-item menu-item-danger" onSelect={() => setTimeout(eliminarMateria, 0)}>
+                    <Trash2 size={15} /> Eliminar materia
+                  </Dropdown.Item>
+                </Dropdown.Content>
+              </Dropdown.Portal>
+            </Dropdown.Root>
+          </>
+        }
+      />
 
-        {/* Top Header */}
-        <div className="flex items-center justify-between">
-          <Link href="/materias" className="flex items-center gap-1 text-sm font-semibold hover:underline"
-            style={{ color: "var(--foreground-muted)" }}>
-            <ChevronLeft size={16} /> Materias
-          </Link>
-          <button onClick={handleEliminarMateria}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold hover:opacity-75"
-            style={{ color: "var(--color-alert)", background: "var(--estado-libre-bg)" }}>
-            <Trash2 size={14} /> Eliminar materia
+      {/* ── Estado + cómo voy ── */}
+      <section className="card card-pad !mt-0">
+        <span className="label" id="estado-label">Estado</span>
+        <div className="flex flex-wrap gap-2" role="radiogroup" aria-labelledby="estado-label">
+          {ESTADOS_ORDEN.map((e) => {
+            const elegido = materia.estado === e;
+            return (
+              <button
+                key={e}
+                type="button"
+                role="radio"
+                aria-checked={elegido}
+                onClick={() => cambiarEstado(e)}
+                className="chip"
+                style={elegido ? { background: ESTADOS[e].bg, borderColor: ESTADOS[e].color, color: ESTADOS[e].color } : undefined}
+              >
+                {elegido && <Check size={14} strokeWidth={3} />}
+                {ESTADOS[e].label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="hint">{estado.ayuda}.</p>
+
+        <div className="flex items-center gap-5 mt-5 pt-5 border-t border-card-border">
+          <div className="text-center flex-shrink-0 min-w-20">
+            <p
+              className="font-display tabular text-5xl font-semibold leading-none"
+              style={{
+                color: tieneNotas
+                  ? colorNota(resultado.promedio_actual, config.nota_aprobar, config.nota_promocionar)
+                  : "var(--foreground-subtle)",
+              }}
+            >
+              {tieneNotas ? formatearNota(resultado.promedio_actual) : "—"}
+            </p>
+            <p className="eyebrow mt-2">Nota actual</p>
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">{mensajeNota}</p>
+            <p className="text-sm text-foreground-muted mt-1">
+              Se calcula como: <span className="font-semibold">{resumenFormula(config)}</span>
+            </p>
+            <button type="button" className="btn btn-ghost btn-sm -ml-3 mt-1" onClick={() => setModal({ tipo: "formula" })}>
+              <SlidersHorizontal size={14} /> Cambiar cómo se calcula
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Notas ── */}
+      <section className="card card-pad">
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <h2 className="section-title flex items-center gap-2">
+            <Award size={17} className="text-primary" /> Notas
+          </h2>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ tipo: "nota" })}>
+            <Plus size={14} /> Cargar nota
           </button>
         </div>
 
-        {/* Card Principal: Info de Materia */}
-        <div className="rounded-2xl p-6 border shadow-sm"
-          style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
-          <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-bold uppercase px-2 py-0.5 rounded-md"
-                  style={{ background: "var(--color-card-border)", color: "var(--foreground-muted)" }}>
-                  {materia.codigo_interno ?? "MATERIA"}
-                </span>
-                {materia.periodo_cursado && (
-                  <span className="text-xs font-semibold" style={{ color: "var(--foreground-subtle)" }}>
-                    {materia.periodo_cursado}
-                  </span>
+        {materia.evaluaciones.length === 0 ? (
+          <EmptyState
+            plano
+            icono={<Award size={22} />}
+            titulo="Todavía no hay notas"
+            texto="Cargá cada parcial, trabajo práctico o final a medida que te den la nota."
+          />
+        ) : (
+          <ul className="divide-y divide-card-border -my-2">
+            {materia.evaluaciones.map((ev) => {
+              const recuperadaPor = evaluacionRecuperadaPor(ev.id, materia.evaluaciones);
+              const recupera = ev.recuperatorio_de
+                ? materia.evaluaciones.find((e) => e.id === ev.recuperatorio_de)
+                : null;
+              return (
+                <li key={ev.id} className="flex items-center gap-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-foreground truncate">{ev.nombre}</p>
+                    <p className="text-xs text-foreground-subtle truncate">
+                      {infoTipo(ev.tipo).label}
+                      {ev.fecha && ` · ${formatearFechaCorta(ev.fecha)}`}
+                      {recupera && ` · recupera ${recupera.nombre}`}
+                      {recuperadaPor && ` · reemplazada por ${recuperadaPor.nombre}`}
+                    </p>
+                  </div>
+                  <NotaEditable
+                    nota={ev.nota}
+                    nombre={ev.nombre}
+                    aprobar={config.nota_aprobar}
+                    promocionar={config.nota_promocionar}
+                    anulada={!!recuperadaPor}
+                    onGuardar={(nota) => guardarNota(ev, nota)}
+                  />
+                  <MenuFila
+                    etiqueta={ev.nombre}
+                    onEditar={() => setModal({ tipo: "nota", evaluacion: ev })}
+                    onEliminar={() => eliminarEvaluacion(ev)}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {/* ── Fechas ── */}
+      <section className="card card-pad">
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <h2 className="section-title flex items-center gap-2">
+            <CalendarDays size={17} className="text-accent" /> Fechas
+          </h2>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setModal({ tipo: "fecha" })}>
+            <CalendarPlus size={14} /> Agendar
+          </button>
+        </div>
+
+        {fechas.length === 0 ? (
+          <EmptyState
+            plano
+            icono={<CalendarDays size={22} />}
+            titulo="Sin fechas agendadas"
+            texto="Agendá parciales, finales y entregas. Aparecen en tu inicio y, si lo conectás, en Google Calendar."
+          />
+        ) : (
+          <>
+            {fechasProximas.length === 0 ? (
+              <p className="text-sm text-foreground-muted">No hay fechas próximas.</p>
+            ) : (
+              <ul className="divide-y divide-card-border -my-2">
+                {fechasProximas.map((f) => (
+                  <FilaFecha
+                    key={f.id}
+                    fecha={f}
+                    onEditar={() => setModal({ tipo: "fecha", fecha: f })}
+                    onEliminar={() => eliminarFecha(f)}
+                    onCalendario={() => llevarAlCalendario(f)}
+                  />
+                ))}
+              </ul>
+            )}
+
+            {fechasPasadas.length > 0 && (
+              <div className="mt-4">
+                <button type="button" className="btn btn-ghost btn-sm -ml-3" onClick={() => setVerPasadas((v) => !v)} aria-expanded={verPasadas}>
+                  {verPasadas ? "Ocultar" : "Ver"} {fechasPasadas.length} {fechasPasadas.length === 1 ? "fecha pasada" : "fechas pasadas"}
+                </button>
+                {verPasadas && (
+                  <ul className="divide-y divide-card-border mt-1">
+                    {fechasPasadas.map((f) => (
+                      <FilaFecha
+                        key={f.id}
+                        fecha={f}
+                        pasada
+                        onEditar={() => setModal({ tipo: "fecha", fecha: f })}
+                        onEliminar={() => eliminarFecha(f)}
+                      />
+                    ))}
+                  </ul>
                 )}
               </div>
-              <h1 className="text-2xl font-extrabold" style={{ color: "var(--foreground)" }}>
-                {materia.nombre}
-              </h1>
-            </div>
-
-            {/* Selector de Estado */}
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-semibold" style={{ color: "var(--foreground-muted)" }}>
-                Estado:
-              </label>
-              <select
-                value={materia.estado}
-                onChange={(e) => handleCambiarEstado(e.target.value as Materia["estado"])}
-                className="px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer"
-                style={{
-                  background: "var(--background-alt)",
-                  borderColor: "var(--color-card-border)",
-                  color: "var(--foreground)",
-                }}
-              >
-                <option value="cursando">Cursando</option>
-                <option value="aprobada">Aprobada</option>
-                <option value="regular">Regular</option>
-                <option value="pendiente">Pendiente</option>
-                <option value="libre">Libre</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Resumen de Notas / Promedio */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-6 pt-5 border-t"
-            style={{ borderColor: "var(--color-card-border)" }}>
-            <div>
-              <p className="text-xs font-semibold" style={{ color: "var(--foreground-muted)" }}>Promedio Actual</p>
-              <p className="text-2xl font-extrabold" style={{ color: "var(--color-primary)" }}>
-                {resultado.promedio_actual > 0 ? resultado.promedio_actual.toFixed(2) : "—"}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold" style={{ color: "var(--foreground-muted)" }}>Cómo se calcula</p>
-              <button
-                onClick={() => setMostrarConstructor(true)}
-                className="text-sm font-bold mt-1 flex items-center gap-1.5 hover:opacity-75 transition-opacity"
-                style={{ color: "var(--color-primary)" }}
-              >
-                <Settings2 size={13} />
-                {resumenFormula(materia.configuracion_nota)}
-              </button>
-              <p className="text-xs mt-1" style={{ color: "var(--foreground-subtle)" }}>
-                Aprobar: {materia.configuracion_nota.nota_aprobar} · Promocionar: {materia.configuracion_nota.nota_promocionar}
-              </p>
-            </div>
-            <div className="col-span-2 sm:col-span-1">
-              <p className="text-xs font-semibold" style={{ color: "var(--foreground-muted)" }}>Estado de Cursada</p>
-              <p className="text-xs font-bold mt-1.5 px-2.5 py-1 rounded-lg inline-block"
-                style={{
-                  background: resultado.puede_promocionar ? "var(--estado-aprobada-bg)" : "var(--background-alt)",
-                  color: resultado.puede_promocionar ? "var(--estado-aprobada)" : "var(--foreground)",
-                }}>
-                {resultado.puede_promocionar ? "Promocionable 🌟" : resultado.puede_aprobar ? "Aprobando 👍" : "En curso 📖"}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Sección: Evaluaciones / Calificaciones */}
-        <div className="rounded-2xl p-6 border shadow-sm"
-          style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-              <Award size={18} style={{ color: "var(--color-primary)" }} />
-              Evaluaciones y Calificaciones
-            </h2>
-            <button
-              onClick={() => setMostrarAgregarNota(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
-              style={{ background: "var(--color-primary)", color: "white" }}>
-              <Plus size={14} /> Nueva evaluación
-            </button>
-          </div>
-
-          {/* Lista de Evaluaciones */}
-          {materia.evaluaciones.length === 0 ? (
-            <p className="text-xs text-center py-6" style={{ color: "var(--foreground-subtle)" }}>
-              No hay evaluaciones cargadas para esta materia.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {materia.evaluaciones.map((ev) => {
-                const recuperadaPor = evaluacionRecuperadaPor(ev.id, materia.evaluaciones);
-                const otrasEvaluaciones = materia.evaluaciones.filter((e) => e.id !== ev.id && e.tipo !== "recuperatorio");
-
-                return (
-                  <div key={ev.id} className="p-3 rounded-xl border transition-all"
-                    style={{ background: "var(--background-alt)", borderColor: "var(--color-card-border)" }}>
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <div className="flex items-center gap-2.5 flex-wrap min-w-0">
-                        <span className="text-xs font-bold uppercase px-2 py-0.5 rounded flex-shrink-0"
-                          style={{ background: "var(--color-card-border)", color: "var(--foreground-muted)", fontSize: "10px" }}>
-                          {ev.tipo}
-                        </span>
-                        <span className="text-sm font-semibold truncate" style={{ color: "var(--foreground)" }}>
-                          {ev.nombre}
-                        </span>
-                        {recuperadaPor && (
-                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
-                            style={{ background: "var(--estado-cursando-bg)", color: "var(--estado-cursando)" }}>
-                            Recuperada por: {recuperadaPor.nombre}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {/* Inline edit nota */}
-                        {editandoEvalId === ev.id ? (
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="number"
-                              min={0}
-                              max={10}
-                              step={0.5}
-                              value={valNotaEdit}
-                              onChange={(e) => setValNotaEdit(e.target.value)}
-                              className="w-14 text-center text-xs font-bold rounded-lg p-1 border"
-                              style={{ background: "var(--color-card)", borderColor: "var(--color-primary)", color: "var(--foreground)" }}
-                              autoFocus
-                            />
-                            <button onClick={() => handleGuardarNotaInline(ev.id)} className="text-xs font-bold px-2 py-1 rounded bg-emerald-600 text-white">
-                              ✓
-                            </button>
-                            <button onClick={() => setEditandoEvalId(null)} className="text-xs px-2 py-1 rounded bg-slate-300">
-                              ✕
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              setEditandoEvalId(ev.id);
-                              setValNotaEdit(ev.nota !== undefined && ev.nota !== null ? String(ev.nota) : "");
-                            }}
-                            className="text-sm font-extrabold px-3 py-1 rounded-lg border transition-all hover:opacity-80"
-                            style={{
-                              background: "var(--color-card)",
-                              borderColor: "var(--color-card-border)",
-                              color: ev.nota !== undefined && ev.nota !== null ? "var(--color-primary)" : "var(--foreground-subtle)",
-                              textDecoration: recuperadaPor ? "line-through" : "none",
-                            }}>
-                            {ev.nota !== undefined && ev.nota !== null ? ev.nota : "Añadir nota"}
-                          </button>
-                        )}
-
-                        {ev.tipo === "recuperatorio" && (
-                          <button
-                            onClick={() => setEditandoVinculoId(editandoVinculoId === ev.id ? null : ev.id)}
-                            className="p-1 rounded opacity-60 hover:opacity-100 transition-opacity"
-                            style={{ color: "var(--color-secondary)" }}
-                            title="Elegir qué evaluación recupera">
-                            <Edit2 size={14} />
-                          </button>
-                        )}
-
-                        <button onClick={() => handleEliminarEvaluacion(ev.id)}
-                          className="p-1 rounded opacity-60 hover:opacity-100 transition-opacity"
-                          style={{ color: "var(--color-alert)" }}>
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Vínculo: qué evaluación recupera este recuperatorio */}
-                    {ev.tipo === "recuperatorio" && editandoVinculoId === ev.id && (
-                      <div className="mt-2.5 pt-2.5 border-t" style={{ borderColor: "var(--color-card-border)" }}>
-                        <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>
-                          ¿Qué evaluación recupera?
-                        </label>
-                        <select
-                          value={ev.recuperatorio_de ?? ""}
-                          onChange={(e) => handleCambiarVinculo(ev.id, e.target.value)}
-                          style={inputStyle}
-                        >
-                          <option value="">No recupera ninguna en particular</option>
-                          {otrasEvaluaciones.map((e) => (
-                            <option key={e.id} value={e.id}>
-                              {e.nombre} {e.nota !== null && e.nota !== undefined ? `(nota: ${e.nota})` : "(sin nota)"}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Sección: Fechas Importantes */}
-        <div className="rounded-2xl p-6 border shadow-sm"
-          style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-              <Calendar size={18} style={{ color: "var(--color-secondary)" }} />
-              Fechas Importantes
-            </h2>
-            <button
-              onClick={() => setShowFormFecha(!showFormFecha)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
-              style={{ background: "var(--color-secondary)", color: "white" }}>
-              <Plus size={14} /> Nueva fecha
-            </button>
-          </div>
-
-          {/* Formulario de nueva fecha */}
-          {showFormFecha && (
-            <form onSubmit={handleCrearFecha} className="p-4 rounded-xl border mb-4 space-y-3 animate-fade-in"
-              style={{ background: "var(--background-alt)", borderColor: "var(--color-card-border)" }}>
-              <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--foreground-muted)" }}>
-                Agregar fecha importante
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <input
-                  type="text"
-                  placeholder="Descripción (ej: 1° Parcial)"
-                  value={nombreFecha}
-                  onChange={(e) => setNombreFecha(e.target.value)}
-                  required
-                  style={inputStyle}
-                />
-                <select
-                  value={tipoFecha}
-                  onChange={(e) => setTipoFecha(e.target.value as FechaImportante["tipo"])}
-                  style={inputStyle}
-                >
-                  <option value="parcial">Parcial</option>
-                  <option value="recuperatorio">Recuperatorio</option>
-                  <option value="final">Final</option>
-                  <option value="tp">TP</option>
-                  <option value="coloquio">Coloquio</option>
-                  <option value="otro">Otro</option>
-                </select>
-                <input
-                  type="datetime-local"
-                  value={fechaStr}
-                  onChange={(e) => setFechaStr(e.target.value)}
-                  required
-                  style={inputStyle}
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-1">
-                <button type="button" onClick={() => setShowFormFecha(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold border"
-                  style={{ borderColor: "var(--color-card-border)", color: "var(--foreground-muted)" }}>
-                  Cancelar
-                </button>
-                <button type="submit" disabled={guardandoFecha}
-                  className="px-4 py-1.5 rounded-lg text-xs font-bold"
-                  style={{ background: "var(--color-secondary)", color: "white" }}>
-                  {guardandoFecha ? "Guardando..." : "Guardar fecha"}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* Lista de Fechas */}
-          {(!materia.fechas_importantes || materia.fechas_importantes.length === 0) ? (
-            <p className="text-xs text-center py-6" style={{ color: "var(--foreground-subtle)" }}>
-              No hay fechas registradas para esta materia.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {materia.fechas_importantes.map((f) => (
-                <div key={f.id} className="flex items-center justify-between p-3 rounded-xl border transition-all"
-                  style={{ background: "var(--background-alt)", borderColor: "var(--color-card-border)" }}>
-                  <div className="flex items-center gap-3">
-                    <Clock size={16} style={{ color: "var(--color-secondary)" }} />
-                    <div>
-                      <p className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
-                        {f.nombre}
-                      </p>
-                      <p className="text-xs" style={{ color: "var(--foreground-muted)" }}>
-                        {f.fecha ? format(parseISO(f.fecha), "PPP - p", { locale: es }) : "Sin fecha"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => handleEliminarFecha(f.id)}
-                      className="p-1 rounded opacity-60 hover:opacity-100 transition-opacity"
-                      style={{ color: "var(--color-alert)" }}>
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Comentarios: solo si la materia está vinculada al catálogo compartido */}
-        {materia.catalogo_id && (
-          <Comentarios
-            catalogoId={materia.catalogo_id}
-            carreraContexto={
-              carreras.find((c) => materia.carreras_vinculadas?.includes(c.id))?.nombre ?? null
-            }
-          />
+            )}
+          </>
         )}
+      </section>
 
-      </div>
+      {/* ── Correlativas ── */}
+      {(requisitos.length > 0 || habilita.length > 0) && (
+        <section className="card card-pad">
+          <h2 className="section-title flex items-center gap-2 mb-4">
+            <GitBranch size={17} className="text-secondary" /> Correlativas
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            {requisitos.length > 0 && (
+              <div>
+                <p className="label">
+                  Para cursarla necesitás
+                  {faltan.length === 0
+                    ? <span className="font-medium text-foreground-subtle"> · las tenés todas</span>
+                    : <span className="font-medium text-alert"> · te {faltan.length === 1 ? "falta 1" : `faltan ${faltan.length}`}</span>}
+                </p>
+                <ul className="space-y-1">
+                  {requisitos.map((m) => {
+                    const cumplida = m.estado === "aprobada" || m.estado === "regular";
+                    return (
+                      <li key={m.id}>
+                        <Link href={`/materias/${m.id}`} className="row-hover flex items-center gap-2 -mx-2 px-2 py-1.5 rounded-[var(--radius-sm)] text-sm">
+                          {cumplida
+                            ? <Check size={15} strokeWidth={3} className="text-primary flex-shrink-0" />
+                            : <CircleDashed size={15} className="text-foreground-subtle flex-shrink-0" />}
+                          <span className="flex-1 min-w-0 truncate font-semibold text-foreground">{m.nombre}</span>
+                          <span className="text-xs text-foreground-subtle flex-shrink-0">{infoEstado(m.estado).label}</span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+            {habilita.length > 0 && (
+              <div>
+                <p className="label">Aprobarla te habilita</p>
+                <ul className="space-y-1">
+                  {habilita.map((m) => (
+                    <li key={m.id}>
+                      <Link href={`/materias/${m.id}`} className="row-hover flex items-center gap-2 -mx-2 px-2 py-1.5 rounded-[var(--radius-sm)] text-sm">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0 mx-[3.5px]" style={{ background: infoEstado(m.estado).color }} />
+                        <span className="flex-1 min-w-0 truncate font-semibold text-foreground">{m.nombre}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
-      {mostrarConstructor && (
-        <ConstructorNota
-          config={materia.configuracion_nota}
-          evaluaciones={materia.evaluaciones}
-          onGuardar={handleGuardarFormula}
-          onCerrar={() => setMostrarConstructor(false)}
+      {/* Comentarios: solo si la materia está vinculada al catálogo compartido */}
+      {materia.catalogo_id && (
+        <Comentarios
+          catalogoId={materia.catalogo_id}
+          carreraContexto={carrerasDeLaMateria[0]?.nombre ?? null}
         />
       )}
 
-      {mostrarAgregarNota && (
+      {modal?.tipo === "nota" && (
         <AgregarNotaModal
           materias={[materia]}
           materiaIdInicial={materia.id}
-          onGuardar={handleGuardarNota}
-          onCerrar={() => setMostrarAgregarNota(false)}
+          evaluacion={modal.evaluacion}
+          onCerrar={() => setModal(null)}
         />
       )}
-    </div>
+      {modal?.tipo === "fecha" && (
+        <FechaModal
+          materias={[materia]}
+          materiaIdInicial={materia.id}
+          fecha={modal.fecha}
+          onCerrar={() => setModal(null)}
+        />
+      )}
+      {modal?.tipo === "formula" && (
+        <ConstructorNota
+          config={config}
+          evaluaciones={materia.evaluaciones}
+          onGuardar={guardarFormula}
+          onCerrar={() => setModal(null)}
+        />
+      )}
+    </main>
   );
 }
 
-export default function MateriaDetallePage(props: PageParams) {
+// ── Piezas ──────────────────────────────────────────────────
+
+function MenuFila({ etiqueta, onEditar, onEliminar, onCalendario }: {
+  etiqueta: string;
+  onEditar: () => void;
+  onEliminar: () => void;
+  /** Solo para fechas: descarga el evento para Apple, Samsung, Outlook o el calendario que sea */
+  onCalendario?: () => void;
+}) {
   return (
-    <AuthGuard>
-      <MateriaDetalleContent params={props.params} />
-    </AuthGuard>
+    <Dropdown.Root>
+      <Dropdown.Trigger className="icon-btn icon-btn-sm -mr-2" aria-label={`Opciones de ${etiqueta}`}>
+        <MoreVertical size={16} />
+      </Dropdown.Trigger>
+      <Dropdown.Portal>
+        <Dropdown.Content className="menu !min-w-40" align="end" sideOffset={4}>
+          {onCalendario && (
+            <Dropdown.Item className="menu-item" onSelect={onCalendario}>
+              <CalendarArrowDown size={14} /> Agregar a mi calendario
+            </Dropdown.Item>
+          )}
+          {/* Un tick después: el menú termina de cerrarse antes de que abra el diálogo. */}
+          <Dropdown.Item className="menu-item" onSelect={() => setTimeout(onEditar, 0)}>
+            <Pencil size={14} /> Editar
+          </Dropdown.Item>
+          <Dropdown.Item className="menu-item menu-item-danger" onSelect={() => setTimeout(onEliminar, 0)}>
+            <Trash2 size={14} /> Eliminar
+          </Dropdown.Item>
+        </Dropdown.Content>
+      </Dropdown.Portal>
+    </Dropdown.Root>
+  );
+}
+
+function FilaFecha({
+  fecha, pasada, onEditar, onEliminar, onCalendario,
+}: {
+  fecha: FechaImportante; pasada?: boolean; onEditar: () => void; onEliminar: () => void; onCalendario?: () => void;
+}) {
+  const dias = diasHasta(fecha.fecha);
+  const urgente = !pasada && dias !== null && dias <= 3;
+  return (
+    <li className="flex items-center gap-3 py-2.5" style={{ opacity: pasada ? 0.65 : 1 }}>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-bold text-foreground truncate">{fecha.nombre}</p>
+        <p className="text-xs text-foreground-subtle truncate first-letter:uppercase">
+          {formatearFechaLarga(fecha.fecha)}
+        </p>
+      </div>
+      <span
+        className="badge flex-shrink-0"
+        style={urgente ? { background: "var(--estado-libre-bg)", color: "var(--color-alert)" } : undefined}
+      >
+        {etiquetaRelativa(fecha.fecha)}
+      </span>
+      <MenuFila etiqueta={fecha.nombre} onEditar={onEditar} onEliminar={onEliminar} onCalendario={pasada ? undefined : onCalendario} />
+    </li>
   );
 }

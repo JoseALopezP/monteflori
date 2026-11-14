@@ -3,17 +3,9 @@
 // externally_connectable (chrome.runtime.sendMessage con el ID de la extensión).
 // No requiere que el dashboard esté en la misma pestaña que el portal universitario.
 
-import { EstadoMateria } from "@/types";
+import { ActoAcademico, EstadoMateria } from "@/types";
 
-export interface ActoAcademico {
-  tipo: "en_curso" | "regularidad" | "promocion" | "examen";
-  resultado: string | null;
-  nota: number | null;
-  /** ISO (YYYY-MM-DD) */
-  fecha: string | null;
-  /** ISO (YYYY-MM-DD), solo regularidades */
-  vencimiento: string | null;
-}
+export type { ActoAcademico };
 
 export interface MateriaScrapeada {
   nombre: string;

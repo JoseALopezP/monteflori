@@ -1,30 +1,32 @@
 "use client";
 
 // src/app/(dashboard)/materias/importar/page.tsx
-// Revisa y confirma los datos scrapeados por la extensión antes de guardarlos en Firestore.
-// El scraper recorre todas las carreras del usuario, así que acá se revisa una sección por carrera.
+// Trae materias y notas desde SIU Guaraní usando la extensión Monteflori Sync.
+// La pantalla guía según dónde esté parado el usuario:
+//   - no tiene la extensión      → cómo instalarla
+//   - la tiene pero no sincronizó → qué hacer en el portal de la facultad
+//   - hay datos                   → revisar y confirmar antes de guardar
+// El scraper recorre todas las carreras, así que se revisa una sección por carrera.
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  Puzzle, RefreshCw, CheckCircle2, AlertCircle, Loader2,
-  GraduationCap, ChevronLeft, Import,
-} from "lucide-react";
+import { AlertTriangle, CheckCircle2, Puzzle, RefreshCw } from "lucide-react";
 import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useCarreraActivaContext } from "@/components/dashboard/CarreraActivaProvider";
-import { addCarrera, importarMateriasScrapeadas } from "@/lib/firestore";
+import { PageHeader, Spinner } from "@/components/ui/kit";
+import { addCarrera, getMaterias, importarMateriasScrapeadas } from "@/lib/firestore";
 import { sincronizarCalendar } from "@/lib/calendarCliente";
 import { vincularConCatalogo, MateriaAVincular } from "@/lib/catalogoCliente";
 import {
   extensionConfigurada, pingExtension, obtenerUltimaSincronizacion,
   limpiarUltimaSincronizacion, ScrapeData, MateriaScrapeada,
 } from "@/lib/extensionSync";
-import { EstadoMateria } from "@/types";
+import { ESTADOS, ESTADOS_ORDEN, parsearNota } from "@/lib/estados";
+import { normalizarTexto } from "@/lib/catalogo";
+import { Carrera, EstadoMateria } from "@/types";
 
 type Estado = "verificando" | "sin-extension" | "sin-datos" | "listo" | "importando" | "hecho";
 
-const ESTADOS: EstadoMateria[] = ["cursando", "aprobada", "regular", "pendiente", "libre"];
 const NUEVA_CARRERA = "__nueva__";
 const SIN_CARRERA = "__sin_carrera__";
 
@@ -39,53 +41,63 @@ interface SeccionEditable {
   filas: FilaEditable[];
 }
 
+function armarSecciones(data: ScrapeData, carreras: Carrera[]): SeccionEditable[] {
+  return data.carreras
+    .filter((c) => c.materias.length > 0)
+    .map((c) => {
+      // Si ya existe una carrera con ese nombre, se propone vincular a esa.
+      const existente = c.carrera
+        ? carreras.find((x) => normalizarTexto(x.nombre) === normalizarTexto(c.carrera!))
+        : null;
+      return {
+        nombreOriginal: c.carrera,
+        carreraId: existente ? existente.id : c.carrera ? NUEVA_CARRERA : SIN_CARRERA,
+        nombreNuevaCarrera: c.carrera ?? "",
+        filas: c.materias.map((m) => ({ ...m, incluir: true })),
+      };
+    });
+}
+
 export default function ImportarPage() {
   const { user } = useAuthContext();
-  const router = useRouter();
-  const { carreras, refetchCarreras } = useCarreraActivaContext();
+  const { carreras, carreraActivaId, setCarreraActivaId } = useCarreraActivaContext();
 
-  const [estado, setEstado] = useState<Estado>("verificando");
+  const [estado, setEstado] = useState<Estado>(() => (extensionConfigurada() ? "verificando" : "sin-extension"));
   const [scrapeData, setScrapeData] = useState<ScrapeData | null>(null);
   const [secciones, setSecciones] = useState<SeccionEditable[]>([]);
   const [resultado, setResultado] = useState<{ creadas: number; actualizadas: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [buscando, setBuscando] = useState(false);
 
-  useEffect(() => {
-    if (!extensionConfigurada()) {
+  const buscar = useCallback(async () => {
+    if (!extensionConfigurada() || !(await pingExtension())) {
       setEstado("sin-extension");
       return;
     }
-    pingExtension().then((disponible) => {
-      if (!disponible) {
-        setEstado("sin-extension");
-        return;
-      }
-      obtenerUltimaSincronizacion().then((data) => {
-        const totalMaterias = data?.carreras?.reduce((acc, c) => acc + c.materias.length, 0) ?? 0;
-        if (!data || totalMaterias === 0) {
-          setEstado("sin-datos");
-          return;
-        }
-        setScrapeData(data);
-        setSecciones(
-          data.carreras.map((c) => {
-            const match = c.carrera
-              ? carreras.find((existente) => existente.nombre.trim().toLowerCase() === c.carrera!.trim().toLowerCase())
-              : null;
-            return {
-              nombreOriginal: c.carrera,
-              carreraId: match ? match.id : c.carrera ? NUEVA_CARRERA : SIN_CARRERA,
-              nombreNuevaCarrera: c.carrera ?? "",
-              filas: c.materias.map((m) => ({ ...m, incluir: true })),
-            };
-          })
-        );
-        setEstado("listo");
-      });
-    });
-    // Solo al montar: no queremos re-pedir el sync si el usuario edita `carreras`.
+    const data = await obtenerUltimaSincronizacion();
+    const total = data?.carreras?.reduce((acc, c) => acc + c.materias.length, 0) ?? 0;
+    if (!data || total === 0) {
+      setEstado("sin-datos");
+      return;
+    }
+    setScrapeData(data);
+    setSecciones(armarSecciones(data, carreras));
+    setEstado("listo");
+    // `carreras` se lee una sola vez, al encontrar los datos: después el
+    // usuario puede estar editando las secciones y no queremos pisárselas.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- consulta a la extensión: los setState ocurren después del await
+    buscar();
+  }, [buscar]);
+
+  async function reintentar() {
+    setBuscando(true);
+    await buscar();
+    setBuscando(false);
+  }
 
   function actualizarSeccion(i: number, cambios: Partial<SeccionEditable>) {
     setSecciones((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...cambios } : s)));
@@ -102,282 +114,357 @@ export default function ImportarPage() {
   }
 
   async function handleImportar() {
-    if (!user?.uid) return;
+    if (!user) return;
+    const sinNombre = secciones.some(
+      (s) => s.carreraId === NUEVA_CARRERA && !s.nombreNuevaCarrera.trim() && s.filas.some((f) => f.incluir)
+    );
+    if (sinNombre) {
+      setError("Ponele un nombre a la carrera nueva, o elegí otra opción en “Guardar en”.");
+      return;
+    }
+
     setError(null);
     setEstado("importando");
     try {
       let creadasTotal = 0;
       let actualizadasTotal = 0;
-      let seCrearonCarreras = false;
+      let primeraCarreraNueva: string | null = null;
       const paraCatalogo: MateriaAVincular[] = [];
 
       for (const seccion of secciones) {
-        let idCarreraFinal: string | null = null;
-        if (seccion.carreraId === NUEVA_CARRERA) {
-          if (seccion.nombreNuevaCarrera.trim()) {
-            idCarreraFinal = await addCarrera(user.uid, {
-              nombre: seccion.nombreNuevaCarrera.trim(),
-              institucion: scrapeData?.universidad ?? "",
-            });
-            seCrearonCarreras = true;
-          }
-        } else if (seccion.carreraId !== SIN_CARRERA) {
-          idCarreraFinal = seccion.carreraId;
-        }
-
         const seleccionadas = seccion.filas.filter((f) => f.incluir);
         if (seleccionadas.length === 0) continue;
 
-        // Traemos las materias existentes recién (no un hook compartido) porque
-        // cada sección puede crear materias que la siguiente sección necesita
-        // ver para no duplicar (ej. una materia compartida entre dos carreras).
-        const { getMaterias } = await import("@/lib/firestore");
-        const materiasExistentes = await getMaterias(user.uid);
+        let idCarrera: string | null = null;
+        if (seccion.carreraId === NUEVA_CARRERA) {
+          idCarrera = await addCarrera(user.uid, {
+            nombre: seccion.nombreNuevaCarrera.trim(),
+            institucion: scrapeData?.universidad ?? "",
+          });
+          primeraCarreraNueva ??= idCarrera;
+        } else if (seccion.carreraId !== SIN_CARRERA) {
+          idCarrera = seccion.carreraId;
+        }
 
-        const res = await importarMateriasScrapeadas(user.uid, idCarreraFinal, seleccionadas, materiasExistentes);
+        // Se releen las materias en cada sección: una sección puede crear
+        // materias que la siguiente necesita ver para no duplicarlas (ej. una
+        // materia compartida entre dos carreras).
+        const existentes = await getMaterias(user.uid);
+        const res = await importarMateriasScrapeadas(user.uid, idCarrera, seleccionadas, existentes);
         creadasTotal += res.creadas;
         actualizadasTotal += res.actualizadas;
 
         res.importadas.forEach((m) =>
-          paraCatalogo.push({
-            materia_id: m.id,
-            nombre: m.nombre,
-            codigo: m.codigo,
-            carrera: seccion.nombreOriginal,
-          })
+          paraCatalogo.push({ materia_id: m.id, nombre: m.nombre, codigo: m.codigo, carrera: seccion.nombreOriginal })
         );
       }
 
-      if (seCrearonCarreras) refetchCarreras();
       await limpiarUltimaSincronizacion();
 
-      // Vincular con el catálogo compartido. El código que trae SIU es la mejor
-      // clave de deduplicación que tenemos, así que acá no hace falta preguntar
-      // nada: dos personas de la misma facultad caen en la misma entrada.
-      if (user && scrapeData?.universidad) {
-        await vincularConCatalogo(user, scrapeData.universidad, paraCatalogo);
+      // Si era la primera carrera del usuario, pasa a ser la que se mira.
+      if (primeraCarreraNueva && carreras.length === 0 && !carreraActivaId) {
+        setCarreraActivaId(primeraCarreraNueva);
       }
 
+      // Vincular con el catálogo compartido. El código que trae SIU es la mejor
+      // clave de deduplicación que tenemos: dos personas de la misma facultad
+      // caen en la misma entrada sin que haya que preguntar nada.
+      if (scrapeData?.universidad) {
+        vincularConCatalogo(user, scrapeData.universidad, paraCatalogo);
+      }
       // La importación puede traer fechas nuevas: que lleguen al calendario
       // sin esperar al repaso del día siguiente.
-      if (user) sincronizarCalendar(user);
+      sincronizarCalendar(user);
+
       setResultado({ creadas: creadasTotal, actualizadas: actualizadasTotal });
       setEstado("hecho");
     } catch {
-      setError("Ocurrió un error al importar. Intentá de nuevo.");
+      setError("Algo falló mientras se guardaba. Lo que ya se importó quedó guardado; podés volver a intentar sin que se duplique.");
       setEstado("listo");
     }
   }
-
-  const inputStyle = {
-    background: "var(--background-alt)",
-    border: "1.5px solid var(--color-card-border)",
-    color: "var(--foreground)",
-    outline: "none",
-    borderRadius: "var(--radius-md)",
-    padding: "0.5rem 0.75rem",
-    fontSize: "var(--font-size-sm)",
-  };
-
-  const cardStyle = {
-    background: "var(--color-card)",
-    borderColor: "var(--color-card-border)",
-  };
 
   const totalFilas = secciones.reduce((acc, s) => acc + s.filas.length, 0);
   const totalIncluidas = secciones.reduce((acc, s) => acc + s.filas.filter((f) => f.incluir).length, 0);
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--background)" }}>
-      <div className="max-w-3xl mx-auto px-4 py-6">
-        <div className="mb-6">
-          <Link href="/materias" className="text-sm mb-1 flex items-center gap-1 hover:underline"
-            style={{ color: "var(--foreground-muted)" }}>
-            <ChevronLeft size={14} /> Materias
-          </Link>
-          <h1 className="text-2xl font-extrabold flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-            <Import size={22} style={{ color: "var(--color-primary)" }} />
-            Importar desde SIU Guaraní
-          </h1>
+    <main className="page page-narrow">
+      <PageHeader
+        titulo="Traer de SIU Guaraní"
+        subtitulo="Tus materias, notas y correlativas, directo desde el portal de tu facultad."
+        volver={{ href: "/materias", label: "Materias" }}
+      />
+
+      {estado === "verificando" && (
+        <div className="card card-pad flex flex-col items-center gap-3 py-12 text-foreground-muted">
+          <Spinner size={26} className="text-primary" />
+          <p className="text-sm">Buscando la extensión...</p>
         </div>
+      )}
 
-        {estado === "verificando" && (
-          <div className="rounded-2xl p-8 border text-center flex flex-col items-center gap-3" style={cardStyle}>
-            <Loader2 size={28} className="animate-spin" style={{ color: "var(--color-primary)" }} />
-            <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>Buscando la extensión...</p>
-          </div>
-        )}
-
-        {estado === "sin-extension" && (
-          <div className="rounded-2xl p-8 border text-center flex flex-col items-center gap-3" style={cardStyle}>
-            <Puzzle size={36} style={{ color: "var(--foreground-subtle)" }} />
-            <p className="font-bold" style={{ color: "var(--foreground)" }}>No detectamos la extensión Monteflori Sync</p>
-            <p className="text-sm max-w-sm" style={{ color: "var(--foreground-muted)" }}>
-              Necesitás instalarla una vez para poder sincronizar tus materias automáticamente.
+      {estado === "sin-extension" && (
+        <div className="card card-pad">
+          <Pasos actual={1} />
+          <div className="flex flex-col items-center text-center pt-2">
+            <span className="w-14 h-14 rounded-full bg-background-alt flex items-center justify-center text-foreground-muted mb-3">
+              <Puzzle size={26} />
+            </span>
+            <h2 className="font-display text-xl font-semibold text-foreground">Primero instalá la extensión</h2>
+            <p className="text-sm text-foreground-muted mt-1.5 max-w-md">
+              Monteflori Sync es una extensión de Chrome que lee tus materias desde SIU Guaraní. Se instala
+              una sola vez y no te pide tu contraseña de la facultad.
             </p>
-            <Link href="/extension"
-              className="mt-2 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all hover:opacity-90"
-              style={{ background: "var(--color-primary)", color: "white" }}>
-              Ver instrucciones de instalación
-            </Link>
-          </div>
-        )}
-
-        {estado === "sin-datos" && (
-          <div className="rounded-2xl p-8 border text-center flex flex-col items-center gap-3" style={cardStyle}>
-            <RefreshCw size={32} style={{ color: "var(--foreground-subtle)" }} />
-            <p className="font-bold" style={{ color: "var(--foreground)" }}>Todavía no hay datos sincronizados</p>
-            <p className="text-sm max-w-sm" style={{ color: "var(--foreground-muted)" }}>
-              Abrí SIU Guaraní y usá el botón &quot;Sincronizar ahora&quot; del ícono de la extensión.
-              Recorre todas tus carreras automáticamente, puede tardar uno o dos minutos.
-            </p>
-          </div>
-        )}
-
-        {(estado === "listo" || estado === "importando") && scrapeData && (
-          <div className="space-y-4">
-            <div className="rounded-2xl p-4 border flex items-center gap-3" style={cardStyle}>
-              <CheckCircle2 size={20} style={{ color: "var(--color-success)" }} />
-              <div className="text-sm" style={{ color: "var(--foreground)" }}>
-                <strong>{totalFilas}</strong> materias detectadas en <strong>{secciones.length}</strong> carrera{secciones.length !== 1 ? "s" : ""}
-                {" "}({scrapeData.universidad})
-              </div>
+            <div className="flex flex-wrap justify-center gap-2 mt-5">
+              <Link href="/extension" className="btn btn-primary">Cómo instalarla</Link>
+              <button type="button" className="btn btn-secondary" onClick={reintentar} disabled={buscando}>
+                {buscando ? <Spinner size={14} /> : <RefreshCw size={14} />} Ya la instalé
+              </button>
             </div>
+            <p className="hint max-w-sm">
+              Funciona en Chrome, Edge y Brave para computadora. Si estás en el celular, podés{" "}
+              <Link href="/materias/nueva" className="link">cargar tus materias a mano</Link>.
+            </p>
+          </div>
+        </div>
+      )}
 
-            {scrapeData.errores && scrapeData.errores.length > 0 && (
-              <div className="p-3 rounded-xl text-sm"
-                style={{ background: "var(--estado-cursando-bg)", color: "var(--estado-cursando)" }}>
-                <p className="font-semibold mb-1">
-                  {scrapeData.errores.length} {scrapeData.errores.length === 1 ? "problema" : "problemas"} durante la sincronización (se importó igual el resto):
+      {estado === "sin-datos" && (
+        <div className="card card-pad">
+          <Pasos actual={2} />
+          <h2 className="font-display text-xl font-semibold text-foreground">Ahora sincronizá desde el portal</h2>
+          <ol className="mt-4 space-y-3">
+            {[
+              "Abrí el SIU Guaraní de tu facultad en otra pestaña e iniciá sesión como siempre.",
+              "Tocá el ícono de Monteflori Sync (arriba a la derecha del navegador) y elegí “Sincronizar ahora”.",
+              "Esperá a que termine: recorre todas tus carreras y puede tardar uno o dos minutos.",
+              "Volvé a esta pestaña y tocá el botón de acá abajo.",
+            ].map((paso, i) => (
+              <li key={i} className="flex gap-3 text-sm text-foreground-muted">
+                <span className="w-6 h-6 rounded-full bg-background-alt text-foreground font-bold text-xs flex items-center justify-center flex-shrink-0 tabular">
+                  {i + 1}
+                </span>
+                <span className="pt-0.5">{paso}</span>
+              </li>
+            ))}
+          </ol>
+          <button type="button" className="btn btn-primary mt-5" onClick={reintentar} disabled={buscando}>
+            {buscando ? <Spinner size={14} /> : <RefreshCw size={14} />} Ya sincronicé, traer mis materias
+          </button>
+        </div>
+      )}
+
+      {(estado === "listo" || estado === "importando") && scrapeData && (
+        <div className="space-y-4">
+          <div className="card card-pad !pb-4">
+            <Pasos actual={3} />
+            <h2 className="font-display text-xl font-semibold text-foreground">Revisá antes de guardar</h2>
+            <p className="text-sm text-foreground-muted mt-1">
+              Encontramos <strong className="text-foreground">{totalFilas} materias</strong> en{" "}
+              {secciones.length === 1 ? "una carrera" : `${secciones.length} carreras`} ({scrapeData.universidad}).
+              Destildá las que no quieras traer y corregí lo que haga falta. Las que ya tenías se actualizan, no se duplican.
+            </p>
+          </div>
+
+          {scrapeData.errores && scrapeData.errores.length > 0 && (
+            <div className="notice notice-warn">
+              <AlertTriangle size={17} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">
+                  {scrapeData.errores.length === 1 ? "Hubo un dato" : `Hubo ${scrapeData.errores.length} datos`} que no se pudieron leer
                 </p>
-                <ul className="list-disc list-inside space-y-0.5">
+                <p className="text-xs mt-0.5">El resto se trae igual. Después podés completar a mano lo que falte.</p>
+                <ul className="list-disc list-inside text-xs mt-1.5 space-y-0.5 opacity-90">
                   {scrapeData.errores.map((e, i) => <li key={i}>{e}</li>)}
                 </ul>
               </div>
-            )}
-
-            {error && (
-              <div className="p-3 rounded-xl flex items-center gap-2 text-sm font-medium"
-                style={{ background: "var(--estado-libre-bg)", color: "var(--color-alert)" }}>
-                <AlertCircle size={16} /> {error}
-              </div>
-            )}
-
-            {secciones.map((seccion, iSeccion) => (
-              <div key={iSeccion} className="rounded-2xl border overflow-hidden" style={cardStyle}>
-                <div className="p-4 border-b" style={{ borderColor: "var(--color-card-border)" }}>
-                  <p className="font-bold text-sm mb-3" style={{ color: "var(--foreground)" }}>
-                    {seccion.nombreOriginal ?? "Sin carrera detectada"}
-                    <span className="ml-2 font-normal text-xs" style={{ color: "var(--foreground-subtle)" }}>
-                      {seccion.filas.length} materias
-                    </span>
-                  </p>
-                  <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>
-                    <GraduationCap size={12} className="inline mr-1" />
-                    Vincular a la carrera
-                  </label>
-                  <select
-                    value={seccion.carreraId}
-                    onChange={(e) => actualizarSeccion(iSeccion, { carreraId: e.target.value })}
-                    style={{ ...inputStyle, width: "100%" }}
-                  >
-                    <option value={SIN_CARRERA}>Sin vincular a ninguna carrera</option>
-                    {carreras.map((c) => (
-                      <option key={c.id} value={c.id}>{c.nombre}</option>
-                    ))}
-                    <option value={NUEVA_CARRERA}>+ Crear nueva carrera</option>
-                  </select>
-                  {seccion.carreraId === NUEVA_CARRERA && (
-                    <input
-                      className="mt-2"
-                      style={{ ...inputStyle, width: "100%" }}
-                      value={seccion.nombreNuevaCarrera}
-                      onChange={(e) => actualizarSeccion(iSeccion, { nombreNuevaCarrera: e.target.value })}
-                      placeholder="Nombre de la nueva carrera"
-                    />
-                  )}
-                </div>
-
-                <div className="divide-y" style={{ borderColor: "var(--color-card-border)" }}>
-                  {seccion.filas.map((f, iFila) => (
-                    <div key={`${f.nombre}-${iFila}`} className="flex items-center gap-3 p-3"
-                      style={{ opacity: f.incluir ? 1 : 0.45 }}>
-                      <input
-                        type="checkbox"
-                        checked={f.incluir}
-                        onChange={(e) => actualizarFila(iSeccion, iFila, { incluir: e.target.checked })}
-                        className="w-4 h-4 flex-shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate" style={{ color: "var(--foreground)" }}>
-                          {f.nombre}
-                        </p>
-                        <p className="text-xs" style={{ color: "var(--foreground-subtle)" }}>
-                          {f.codigo_interno ?? "—"} · {f.periodo_texto ?? "sin período"}
-                          {f.año_plan ? ` · Año ${f.año_plan}` : ""}
-                          {f.fecha_aprobacion ? ` · aprobada ${f.fecha_aprobacion}` : ""}
-                        </p>
-                      </div>
-                      <select
-                        value={f.estado}
-                        onChange={(e) => actualizarFila(iSeccion, iFila, { estado: e.target.value as EstadoMateria })}
-                        style={{ ...inputStyle, fontSize: "12px", padding: "0.4rem 0.5rem" }}
-                      >
-                        {ESTADOS.map((e) => <option key={e} value={e}>{e}</option>)}
-                      </select>
-                      <input
-                        type="number"
-                        min={0}
-                        max={10}
-                        step={0.5}
-                        value={f.nota ?? ""}
-                        onChange={(e) => actualizarFila(iSeccion, iFila, { nota: e.target.value ? Number(e.target.value) : null })}
-                        placeholder="Nota"
-                        style={{ ...inputStyle, width: "4.5rem", fontSize: "12px", padding: "0.4rem 0.5rem" }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-
-            <div className="flex gap-3">
-              <Link href="/materias"
-                className="flex-1 py-3 rounded-xl font-semibold text-sm text-center border transition-all hover:opacity-75"
-                style={{ borderColor: "var(--color-card-border)", color: "var(--foreground-muted)" }}>
-                Cancelar
-              </Link>
-              <button
-                onClick={handleImportar}
-                disabled={estado === "importando" || totalIncluidas === 0}
-                className="flex-1 py-3 rounded-xl font-bold text-sm transition-all hover:opacity-90 flex items-center justify-center gap-2"
-                style={{ background: "var(--color-primary)", color: "white" }}
-              >
-                {estado === "importando"
-                  ? <><Loader2 size={16} className="animate-spin" /> Importando...</>
-                  : `Importar ${totalIncluidas} materias`}
-              </button>
             </div>
-          </div>
-        )}
+          )}
 
-        {estado === "hecho" && resultado && (
-          <div className="rounded-2xl p-8 border text-center flex flex-col items-center gap-3" style={cardStyle}>
-            <CheckCircle2 size={40} style={{ color: "var(--color-success)" }} />
-            <p className="font-bold text-lg" style={{ color: "var(--foreground)" }}>¡Importación completa!</p>
-            <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-              {resultado.creadas} materias creadas · {resultado.actualizadas} actualizadas
-            </p>
+          {error && <div className="notice notice-error" role="alert">{error}</div>}
+
+          {secciones.map((seccion, iSeccion) => {
+            const incluidas = seccion.filas.filter((f) => f.incluir).length;
+            const todas = incluidas === seccion.filas.length;
+            return (
+              <section key={iSeccion} className="card overflow-hidden">
+                <div className="card-pad !pb-4 space-y-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <h3 className="font-bold text-foreground">{seccion.nombreOriginal ?? "Materias sin carrera detectada"}</h3>
+                    <span className="text-xs font-bold text-foreground-muted tabular flex-shrink-0">
+                      {incluidas} de {seccion.filas.length}
+                    </span>
+                  </div>
+                  <div>
+                    <label className="label" htmlFor={`imp-carrera-${iSeccion}`}>Guardar en</label>
+                    <select
+                      id={`imp-carrera-${iSeccion}`}
+                      className="input"
+                      value={seccion.carreraId}
+                      onChange={(e) => actualizarSeccion(iSeccion, { carreraId: e.target.value })}
+                    >
+                      <option value={NUEVA_CARRERA}>Una carrera nueva</option>
+                      {carreras.map((c) => <option key={c.id} value={c.id}>{c.nombre} (ya la tenés)</option>)}
+                      <option value={SIN_CARRERA}>Ninguna carrera</option>
+                    </select>
+                    {seccion.carreraId === NUEVA_CARRERA && (
+                      <input
+                        className="input mt-2"
+                        value={seccion.nombreNuevaCarrera}
+                        onChange={(e) => actualizarSeccion(iSeccion, { nombreNuevaCarrera: e.target.value })}
+                        placeholder="Nombre de la carrera"
+                        aria-label="Nombre de la carrera nueva"
+                        maxLength={200}
+                      />
+                    )}
+                  </div>
+                  <label className="flex items-center gap-2.5 text-sm font-semibold text-foreground-muted w-fit">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4"
+                      checked={todas}
+                      ref={(el) => { if (el) el.indeterminate = incluidas > 0 && !todas; }}
+                      onChange={(e) =>
+                        actualizarSeccion(iSeccion, {
+                          filas: seccion.filas.map((f) => ({ ...f, incluir: e.target.checked })),
+                        })
+                      }
+                    />
+                    {todas ? "Destildar todas" : "Tildar todas"}
+                  </label>
+                </div>
+
+                <ul className="divide-y divide-card-border border-t border-card-border">
+                  {seccion.filas.map((f, iFila) => (
+                    <li key={`${f.nombre}-${iFila}`} className="flex items-center gap-3 px-4 sm:px-6 py-2.5 flex-wrap sm:flex-nowrap">
+                      <label className="flex items-center gap-3 flex-1 min-w-0 basis-full sm:basis-auto" style={{ opacity: f.incluir ? 1 : 0.5 }}>
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 flex-shrink-0"
+                          checked={f.incluir}
+                          onChange={(e) => actualizarFila(iSeccion, iFila, { incluir: e.target.checked })}
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-bold text-foreground truncate">{f.nombre}</span>
+                          <span className="block text-xs text-foreground-subtle truncate">
+                            {[
+                              f.codigo_interno,
+                              f.año_plan ? `${f.año_plan}° año` : null,
+                              f.periodo_texto,
+                              f.correlativas_nombres?.length
+                                ? `${f.correlativas_nombres.length} ${f.correlativas_nombres.length === 1 ? "correlativa" : "correlativas"}`
+                                : null,
+                            ].filter(Boolean).join(" · ") || "Sin más datos"}
+                          </span>
+                        </span>
+                      </label>
+                      {f.incluir && (
+                        <div className="flex items-center gap-2 pl-7 sm:pl-0 flex-shrink-0">
+                          <select
+                            className="input input-sm"
+                            style={{ width: "8.25rem" }}
+                            value={f.estado}
+                            onChange={(e) => actualizarFila(iSeccion, iFila, { estado: e.target.value as EstadoMateria })}
+                            aria-label={`Estado de ${f.nombre}`}
+                          >
+                            {ESTADOS_ORDEN.map((e) => <option key={e} value={e}>{ESTADOS[e].label}</option>)}
+                          </select>
+                          <input
+                            className="input input-sm tabular text-center font-bold"
+                            style={{ width: "4.25rem" }}
+                            inputMode="decimal"
+                            defaultValue={f.nota ?? ""}
+                            onBlur={(e) => {
+                              const nota = parsearNota(e.target.value);
+                              if (Number.isNaN(nota)) e.target.value = f.nota === null ? "" : String(f.nota);
+                              else actualizarFila(iSeccion, iFila, { nota });
+                            }}
+                            placeholder="Nota"
+                            aria-label={`Nota de ${f.nombre}`}
+                          />
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+
+          {/* Barra de acción pegada abajo: la lista puede ser muy larga */}
+          <div className="sticky bottom-20 md:bottom-4 z-10 card p-3 flex gap-2" style={{ boxShadow: "var(--shadow-lg)" }}>
+            <Link href="/materias" className="btn btn-secondary btn-lg">Cancelar</Link>
             <button
-              onClick={() => router.push("/materias")}
-              className="mt-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all hover:opacity-90"
-              style={{ background: "var(--color-primary)", color: "white" }}
+              type="button"
+              onClick={handleImportar}
+              disabled={estado === "importando" || totalIncluidas === 0}
+              className="btn btn-primary btn-lg flex-1"
             >
-              Ver mis materias
+              {estado === "importando" ? (
+                <><Spinner /> Guardando, no cierres la pestaña...</>
+              ) : totalIncluidas === 0 ? (
+                "Tildá al menos una materia"
+              ) : (
+                `Traer ${totalIncluidas} ${totalIncluidas === 1 ? "materia" : "materias"}`
+              )}
             </button>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+
+      {estado === "hecho" && resultado && (
+        <div className="card card-pad flex flex-col items-center text-center py-10 animate-fade-in">
+          <span className="w-14 h-14 rounded-full flex items-center justify-center mb-3" style={{ background: "var(--color-primary-soft)" }}>
+            <CheckCircle2 size={28} className="text-primary" />
+          </span>
+          <h2 className="font-display text-2xl font-semibold text-foreground">¡Listo, ya está todo!</h2>
+          <p className="text-sm text-foreground-muted mt-1.5">
+            {[
+              resultado.creadas > 0 ? `${resultado.creadas} ${resultado.creadas === 1 ? "materia nueva" : "materias nuevas"}` : null,
+              resultado.actualizadas > 0 ? `${resultado.actualizadas} ${resultado.actualizadas === 1 ? "actualizada" : "actualizadas"}` : null,
+            ].filter(Boolean).join(" · ")}
+          </p>
+          <p className="text-sm text-foreground-muted mt-3 max-w-sm">
+            Cuando tengas notas nuevas en SIU Guaraní, repetí la sincronización y se actualizan solas.
+          </p>
+          <div className="flex flex-wrap justify-center gap-2 mt-5">
+            <Link href="/" className="btn btn-primary">Ver mi avance</Link>
+            <Link href="/materias/pasos" className="btn btn-secondary">Ver qué puedo cursar</Link>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
+
+function Pasos({ actual }: { actual: 1 | 2 | 3 }) {
+  const pasos = ["Instalar", "Sincronizar", "Revisar"];
+  return (
+    <ol className="flex items-center gap-2 mb-5" aria-label={`Paso ${actual} de 3`}>
+      {pasos.map((p, i) => {
+        const n = i + 1;
+        const hecho = n < actual;
+        const activo = n === actual;
+        return (
+          <li key={p} className="flex items-center gap-2 flex-1 last:flex-none">
+            <span
+              className={`flex items-center gap-1.5 text-xs font-bold whitespace-nowrap ${
+                activo ? "text-primary" : hecho ? "text-foreground-muted" : "text-foreground-subtle"
+              }`}
+              aria-current={activo ? "step" : undefined}
+            >
+              <span
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] tabular ${
+                  activo ? "bg-primary text-primary-fg" : "bg-background-alt"
+                }`}
+              >
+                {hecho ? "✓" : n}
+              </span>
+              {p}
+            </span>
+            {n < pasos.length && <span className="flex-1 h-px bg-card-border" />}
+          </li>
+        );
+      })}
+    </ol>
   );
 }

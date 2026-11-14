@@ -1,30 +1,27 @@
 "use client";
 
 // src/components/dashboard/CarreraActivaProvider.tsx
-// Estado global de "carrera activa" para todo el dashboard: qué carrera (o
-// "Global") está seleccionada. Se inicializa con Usuario.configuracion.carrera_activa
-// y persiste cualquier cambio, así la próxima vez que se entra a la app arranca
-// en la misma carrera.
+// Qué carrera se está mirando en todo el dashboard (o "Todas"). La elección se
+// guarda en Usuario.configuracion.carrera_activa, así la próxima vez la app
+// arranca en la misma. También expone las materias ya filtradas por esa
+// carrera, que es lo que necesita casi toda pantalla.
 
 import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-  ReactNode,
+  createContext, useCallback, useContext, useMemo, useState, ReactNode,
 } from "react";
 import { useAuthContext } from "@/components/auth/AuthProvider";
-import { getCarreras, getPerfilUsuario, updateConfiguracion } from "@/lib/firestore";
-import { Carrera } from "@/types";
+import { useDatos } from "./DatosProvider";
+import { updateConfiguracion } from "@/lib/firestore";
+import { Carrera, Materia } from "@/types";
 
 interface CarreraActivaContextValue {
   carreras: Carrera[];
   carreraActivaId: string | null;
   carreraActiva: Carrera | null;
   setCarreraActivaId: (id: string | null) => void;
+  /** Materias de la carrera activa, o todas si se está en "Todas las carreras" */
+  materiasVisibles: Materia[];
   loading: boolean;
-  refetchCarreras: () => void;
 }
 
 const CarreraActivaContext = createContext<CarreraActivaContextValue>({
@@ -32,60 +29,54 @@ const CarreraActivaContext = createContext<CarreraActivaContextValue>({
   carreraActivaId: null,
   carreraActiva: null,
   setCarreraActivaId: () => {},
+  materiasVisibles: [],
   loading: true,
-  refetchCarreras: () => {},
 });
 
 export function CarreraActivaProvider({ children }: { children: ReactNode }) {
   const { user } = useAuthContext();
   const uid = user?.uid ?? null;
+  const { carreras, materias, perfil, loadingCarreras, loadingPerfil } = useDatos();
 
-  const [carreras, setCarreras] = useState<Carrera[]>([]);
-  const [carreraActivaId, setCarreraActivaIdState] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Elección hecha en esta sesión: gana sobre lo guardado para que el cambio se
+  // vea al instante, sin esperar la ida y vuelta a Firestore.
+  const [eleccion, setEleccion] = useState<{ uid: string; id: string | null } | null>(null);
 
-  const refetchCarreras = useCallback(() => {
-    if (!uid) return;
-    getCarreras(uid).then(setCarreras);
-  }, [uid]);
-
-  useEffect(() => {
-    if (!uid) {
-      setCarreras([]);
-      setCarreraActivaIdState(null);
-      setLoading(false);
-      return;
-    }
-    let cancelado = false;
-    setLoading(true);
-    Promise.all([getCarreras(uid), getPerfilUsuario(uid)]).then(([carrerasData, perfil]) => {
-      if (cancelado) return;
-      setCarreras(carrerasData);
-      // La carrera principal guardada puede apuntar a una carrera ya borrada —
-      // en ese caso caemos a vista global en vez de mostrar algo inexistente.
-      const guardada = perfil?.configuracion?.carrera_activa ?? null;
-      const sigueExistiendo = guardada && carrerasData.some((c) => c.id === guardada);
-      setCarreraActivaIdState(sigueExistiendo ? guardada : null);
-      setLoading(false);
-    });
-    return () => {
-      cancelado = true;
-    };
-  }, [uid]);
+  const guardada = perfil?.configuracion?.carrera_activa ?? null;
+  const pedida = eleccion && eleccion.uid === uid ? eleccion.id : guardada;
+  // La carrera guardada puede haberse borrado: en ese caso se muestran todas.
+  const carreraActiva = carreras.find((c) => c.id === pedida) ?? null;
+  const carreraActivaId = carreraActiva?.id ?? null;
 
   const setCarreraActivaId = useCallback(
     (id: string | null) => {
-      setCarreraActivaIdState(id);
-      if (uid) updateConfiguracion(uid, { carrera_activa: id });
+      if (!uid) return;
+      setEleccion({ uid, id });
+      updateConfiguracion(uid, { carrera_activa: id }).catch(() => {
+        // Si no se pudo guardar, la elección igual vale para esta sesión.
+      });
     },
     [uid]
   );
 
-  const carreraActiva = carreras.find((c) => c.id === carreraActivaId) ?? null;
+  const materiasVisibles = useMemo(
+    () =>
+      carreraActivaId
+        ? materias.filter((m) => m.carreras_vinculadas?.includes(carreraActivaId))
+        : materias,
+    [materias, carreraActivaId]
+  );
 
   return (
     <CarreraActivaContext.Provider
-      value={{ carreras, carreraActivaId, carreraActiva, setCarreraActivaId, loading, refetchCarreras }}
+      value={{
+        carreras,
+        carreraActivaId,
+        carreraActiva,
+        setCarreraActivaId,
+        materiasVisibles,
+        loading: loadingCarreras || loadingPerfil,
+      }}
     >
       {children}
     </CarreraActivaContext.Provider>

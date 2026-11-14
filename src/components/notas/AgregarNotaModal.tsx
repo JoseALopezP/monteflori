@@ -1,209 +1,228 @@
 "use client";
 
 // src/components/notas/AgregarNotaModal.tsx
-// Modal compartido para cargar una nota: se usa desde el home (eligiendo
-// materia) y desde el detalle de materia (con la materia ya fija). Si el
-// tipo es "recuperatorio", permite vincularlo a la evaluación que recupera
-// — esa evaluación no se borra, pero queda afuera del cálculo de la nota
-// final (la reemplaza el recuperatorio).
+// Cargar una evaluación (o editar una existente). Se abre desde cualquier
+// pantalla con el botón "+" de la navegación, y desde el detalle de una
+// materia con esa materia ya fija.
+//
+// Si el tipo es "recuperatorio" se puede vincular a la evaluación que
+// recupera: esa no se borra, pero queda afuera del cálculo de la nota final.
 
-import { useEffect, useState } from "react";
-import { X, Loader2, Award, AlertCircle } from "lucide-react";
+import { useState } from "react";
+import { Award } from "lucide-react";
+import { Modal } from "@/components/ui/Modal";
+import { Campo, Spinner } from "@/components/ui/kit";
+import { useToast } from "@/components/ui/Feedback";
+import { useAuthContext } from "@/components/auth/AuthProvider";
+import { addEvaluacion, updateEvaluacion } from "@/lib/firestore";
+import { TIPOS_EVALUACION, TIPOS_ORDEN, parsearNota } from "@/lib/estados";
 import { Materia, Evaluacion, TipoEvaluacion } from "@/types";
-
-const TIPO_LABEL: Record<TipoEvaluacion, string> = {
-  parcial: "Parcial",
-  recuperatorio: "Recuperatorio",
-  tp: "Trabajo práctico",
-  coloquio: "Coloquio",
-  final: "Final",
-  otro: "Otro",
-};
-
-const TIPOS_ORDEN: TipoEvaluacion[] = ["parcial", "tp", "coloquio", "final", "recuperatorio", "otro"];
 
 interface AgregarNotaModalProps {
   materias: Materia[];
   /** Si se pasa, la materia queda fija (no se muestra el selector) */
   materiaIdInicial?: string;
-  onGuardar: (materiaId: string, datos: Omit<Evaluacion, "id">) => Promise<void>;
+  /** Si se pasa, se edita esa evaluación en vez de crear una */
+  evaluacion?: Evaluacion;
   onCerrar: () => void;
 }
 
-export function AgregarNotaModal({ materias, materiaIdInicial, onGuardar, onCerrar }: AgregarNotaModalProps) {
-  const [materiaId, setMateriaId] = useState(materiaIdInicial ?? "");
-  const [tipo, setTipo] = useState<TipoEvaluacion>("parcial");
-  const [nombre, setNombre] = useState("");
-  const [nombreTocado, setNombreTocado] = useState(false);
-  const [nota, setNota] = useState<number | "">("");
-  const [recuperaDeId, setRecuperaDeId] = useState("");
+export function AgregarNotaModal({ materias, materiaIdInicial, evaluacion, onCerrar }: AgregarNotaModalProps) {
+  const { user } = useAuthContext();
+  const toast = useToast();
+  const editando = !!evaluacion;
+
+  const cursando = materias.filter((m) => m.estado === "cursando");
+  const otras = materias.filter((m) => m.estado !== "cursando");
+
+  // Con una sola materia en curso no hay nada que elegir.
+  const [materiaId, setMateriaId] = useState(
+    materiaIdInicial ?? (cursando.length === 1 ? cursando[0].id : "")
+  );
+  const [tipo, setTipo] = useState<TipoEvaluacion>(evaluacion?.tipo ?? "parcial");
+  const [nombreEscrito, setNombreEscrito] = useState<string | null>(evaluacion?.nombre ?? null);
+  const [nota, setNota] = useState(
+    evaluacion?.nota !== null && evaluacion?.nota !== undefined ? String(evaluacion.nota).replace(".", ",") : ""
+  );
+  const [fecha, setFecha] = useState(evaluacion?.fecha?.slice(0, 10) ?? "");
+  const [recuperaDeId, setRecuperaDeId] = useState(evaluacion?.recuperatorio_de ?? "");
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const materiaSeleccionada = materias.find((m) => m.id === materiaId) ?? null;
-  const evaluacionesExistentes = materiaSeleccionada?.evaluaciones ?? [];
-  const candidatasARecuperar = evaluacionesExistentes.filter((e) => e.tipo !== "recuperatorio");
+  const materia = materias.find((m) => m.id === materiaId) ?? null;
+  const existentes = materia?.evaluaciones ?? [];
+  const candidatasARecuperar = existentes.filter(
+    (e) => e.tipo !== "recuperatorio" && e.id !== evaluacion?.id
+  );
 
-  // Sugiere un nombre ("Parcial 2") mientras el usuario no haya escrito el propio.
-  useEffect(() => {
-    if (nombreTocado) return;
-    const cantidad = evaluacionesExistentes.filter((e) => e.tipo === tipo).length + 1;
-    setNombre(`${TIPO_LABEL[tipo]} ${cantidad}`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tipo, materiaId]);
-
-  // Si cambia de tipo y ya no es recuperatorio, olvidamos el vínculo elegido.
-  useEffect(() => {
-    if (tipo !== "recuperatorio") setRecuperaDeId("");
-  }, [tipo]);
+  // Sugiere "Parcial 2" mientras el usuario no escriba un nombre propio.
+  const sugerido = `${TIPOS_EVALUACION[tipo].label} ${existentes.filter((e) => e.tipo === tipo).length + 1}`;
+  const nombre = nombreEscrito ?? sugerido;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!materiaId) { setError("Elegí a qué materia corresponde."); return; }
+    if (!user || !materia) { setError("Elegí a qué materia corresponde."); return; }
     if (!nombre.trim()) { setError("Ponele un nombre a la evaluación."); return; }
+    const notaNum = parsearNota(nota);
+    if (Number.isNaN(notaNum)) { setError("La nota tiene que ser un número entre 0 y 10."); return; }
+
     setError(null);
     setGuardando(true);
+    const datos: Omit<Evaluacion, "id"> = {
+      nombre: nombre.trim(),
+      tipo,
+      nota: notaNum,
+      fecha: fecha || null,
+      recuperatorio_de: tipo === "recuperatorio" && recuperaDeId ? recuperaDeId : undefined,
+    };
     try {
-      await onGuardar(materiaId, {
-        nombre: nombre.trim(),
-        tipo,
-        nota: nota === "" ? null : Number(nota),
-        recuperatorio_de: tipo === "recuperatorio" && recuperaDeId ? recuperaDeId : undefined,
-      });
+      if (evaluacion) {
+        await updateEvaluacion(user.uid, materia.id, evaluacion.id, datos, existentes);
+        toast("Evaluación actualizada");
+      } else {
+        await addEvaluacion(user.uid, materia.id, datos, existentes);
+        toast(notaNum === null ? "Evaluación agregada" : `Nota guardada en ${materia.nombre}`);
+      }
       onCerrar();
     } catch {
-      setError("No se pudo guardar. Intentá de nuevo.");
-    } finally {
+      setError("No se pudo guardar. Revisá tu conexión e intentá de nuevo.");
       setGuardando(false);
     }
   }
 
-  const inputStyle = {
-    background: "var(--background-alt)",
-    border: "1.5px solid var(--color-card-border)",
-    color: "var(--foreground)",
-    outline: "none",
-    borderRadius: "var(--radius-md)",
-    padding: "0.625rem 0.875rem",
-    fontSize: "var(--font-size-sm)",
-    width: "100%",
-  };
-
   return (
-    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.5)" }}>
-      <div className="w-full sm:max-w-md max-h-[92vh] flex flex-col rounded-t-3xl sm:rounded-2xl overflow-hidden animate-fade-in"
-        style={{ background: "var(--color-card)" }}>
+    <Modal
+      titulo={editando ? "Editar evaluación" : "Cargar nota"}
+      descripcion={
+        materiaIdInicial && materia
+          ? materia.nombre
+          : "Podés dejar la nota vacía y completarla cuando la tengas."
+      }
+      icono={<Award size={20} />}
+      onCerrar={onCerrar}
+    >
+      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        {error && <div className="notice notice-error" role="alert">{error}</div>}
 
-        <div className="flex items-center justify-between px-5 py-4 border-b flex-shrink-0"
-          style={{ borderColor: "var(--color-card-border)" }}>
-          <h2 className="font-bold text-base flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-            <Award size={16} style={{ color: "var(--color-primary)" }} />
-            Cargar nota
-          </h2>
-          <button onClick={onCerrar} className="p-2 rounded-xl hover:opacity-70 transition-opacity"
-            style={{ color: "var(--foreground-muted)" }} aria-label="Cerrar">
-            <X size={18} />
-          </button>
+        {!materiaIdInicial && (
+          <Campo label="Materia" htmlFor="nota-materia">
+            <select
+              id="nota-materia"
+              className="input"
+              value={materiaId}
+              onChange={(e) => setMateriaId(e.target.value)}
+              autoFocus={!materiaId}
+            >
+              <option value="">Elegí una materia</option>
+              {cursando.length > 0 && (
+                <optgroup label="Cursando ahora">
+                  {cursando.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                </optgroup>
+              )}
+              {otras.length > 0 && (
+                <optgroup label={cursando.length > 0 ? "Otras materias" : "Materias"}>
+                  {otras.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                </optgroup>
+              )}
+            </select>
+          </Campo>
+        )}
+
+        <div>
+          <span className="label" id="nota-tipo-label">¿Qué fue?</span>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-labelledby="nota-tipo-label">
+            {TIPOS_ORDEN.map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="radio"
+                aria-checked={tipo === t}
+                onClick={() => setTipo(t)}
+                className="chip"
+              >
+                {TIPOS_EVALUACION[t].label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="px-5 py-4 space-y-3 overflow-y-auto">
-          {error && (
-            <div className="p-3 rounded-xl flex items-center gap-2 text-sm font-medium"
-              style={{ background: "var(--estado-libre-bg)", color: "var(--color-alert)" }}>
-              <AlertCircle size={16} className="flex-shrink-0" /> {error}
-            </div>
-          )}
+        <div className="grid grid-cols-[1fr_6.5rem] gap-3">
+          <Campo label="Nombre" htmlFor="nota-nombre">
+            <input
+              id="nota-nombre"
+              className="input"
+              value={nombre}
+              onChange={(e) => setNombreEscrito(e.target.value)}
+              maxLength={80}
+            />
+          </Campo>
+          <Campo label="Nota" htmlFor="nota-valor">
+            <input
+              id="nota-valor"
+              className="input tabular text-center font-bold"
+              inputMode="decimal"
+              value={nota}
+              onChange={(e) => setNota(e.target.value)}
+              placeholder="0 a 10"
+              autoFocus={!!materiaId}
+            />
+          </Campo>
+        </div>
 
-          {!materiaIdInicial ? (
-            <div>
-              <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>
-                Materia
-              </label>
-              <select value={materiaId} onChange={(e) => setMateriaId(e.target.value)}
-                required autoFocus style={inputStyle}>
-                <option value="">Elegí una materia</option>
-                {materias.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-              </select>
-            </div>
-          ) : (
-            materiaSeleccionada && (
-              <p className="text-sm font-bold" style={{ color: "var(--foreground)" }}>
-                {materiaSeleccionada.nombre}
+        <Campo label="Fecha" htmlFor="nota-fecha" opcional>
+          <input
+            id="nota-fecha"
+            type="date"
+            className="input"
+            value={fecha}
+            onChange={(e) => setFecha(e.target.value)}
+          />
+        </Campo>
+
+        {tipo === "recuperatorio" && (
+          <div className="rounded-[var(--radius-md)] bg-background-alt p-3.5">
+            {candidatasARecuperar.length === 0 ? (
+              <p className="text-sm text-foreground-muted">
+                {materia
+                  ? "Esta materia todavía no tiene otra evaluación cargada para vincular."
+                  : "Elegí la materia para poder vincularlo a la evaluación que recupera."}
               </p>
-            )
-          )}
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>
-                Tipo
-              </label>
-              <select value={tipo} onChange={(e) => setTipo(e.target.value as TipoEvaluacion)} style={inputStyle}>
-                {TIPOS_ORDEN.map((t) => <option key={t} value={t}>{TIPO_LABEL[t]}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>
-                Nota (opcional)
-              </label>
-              <input type="number" min={0} max={10} step={0.5} value={nota}
-                onChange={(e) => setNota(e.target.value ? Number(e.target.value) : "")}
-                placeholder="—" style={inputStyle} />
-            </div>
+            ) : (
+              <Campo
+                label="¿Qué evaluación recupera?"
+                htmlFor="nota-recupera"
+                opcional
+                ayuda="La nota original no se borra: queda en tu historial, pero para la nota final cuenta esta."
+              >
+                <select
+                  id="nota-recupera"
+                  className="input"
+                  value={recuperaDeId}
+                  onChange={(e) => setRecuperaDeId(e.target.value)}
+                >
+                  <option value="">Ninguna en particular</option>
+                  {candidatasARecuperar.map((ev) => (
+                    <option key={ev.id} value={ev.id}>
+                      {ev.nombre}
+                      {ev.nota !== null && ev.nota !== undefined ? ` — sacaste ${ev.nota}` : " — sin nota"}
+                    </option>
+                  ))}
+                </select>
+              </Campo>
+            )}
           </div>
+        )}
 
-          <div>
-            <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>
-              Nombre
-            </label>
-            <input value={nombre} onChange={(e) => { setNombre(e.target.value); setNombreTocado(true); }}
-              required style={inputStyle} />
-          </div>
-
-          {tipo === "recuperatorio" && (
-            <div className="p-3 rounded-xl" style={{ background: "var(--background-alt)" }}>
-              <label className="block text-xs font-semibold mb-1.5" style={{ color: "var(--foreground-muted)" }}>
-                ¿Qué evaluación recupera? (opcional)
-              </label>
-              {candidatasARecuperar.length === 0 ? (
-                <p className="text-xs" style={{ color: "var(--foreground-subtle)" }}>
-                  Todavía no hay otras evaluaciones cargadas en esta materia para vincular.
-                </p>
-              ) : (
-                <>
-                  <select value={recuperaDeId} onChange={(e) => setRecuperaDeId(e.target.value)}
-                    style={{ ...inputStyle, background: "var(--color-card)" }}>
-                    <option value="">No recupera ninguna en particular</option>
-                    {candidatasARecuperar.map((ev) => (
-                      <option key={ev.id} value={ev.id}>
-                        {ev.nombre} {ev.nota !== null && ev.nota !== undefined ? `(nota: ${ev.nota})` : "(sin nota)"}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs mt-1.5" style={{ color: "var(--foreground-subtle)" }}>
-                    No se borra la nota original — queda en tu historial, pero para calcular tu nota final se usa esta.
-                  </p>
-                </>
-              )}
-            </div>
-          )}
-
-          <div className="flex gap-2 pt-2">
-            <button type="button" onClick={onCerrar}
-              className="flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all hover:opacity-75"
-              style={{ borderColor: "var(--color-card-border)", color: "var(--foreground-muted)" }}>
-              Cancelar
-            </button>
-            <button type="submit" disabled={guardando || !materiaId}
-              className="flex-1 py-2.5 rounded-xl text-sm font-bold transition-all hover:opacity-90 flex items-center justify-center gap-2"
-              style={{ background: "var(--color-primary)", color: "white" }}>
-              {guardando && <Loader2 size={14} className="animate-spin" />}
-              {guardando ? "Guardando..." : "Guardar"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div className="flex gap-2 pt-1">
+          <button type="button" className="btn btn-secondary flex-1" onClick={onCerrar}>
+            Cancelar
+          </button>
+          <button type="submit" className="btn btn-primary flex-1" disabled={guardando}>
+            {guardando && <Spinner size={14} />}
+            {guardando ? "Guardando..." : editando ? "Guardar cambios" : "Guardar"}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }

@@ -1,39 +1,55 @@
 "use client";
 
 // src/app/(dashboard)/donar/page.tsx
-// Explica los dos niveles y arranca el flujo de donación por Mercado Pago.
+// Explica qué se banca con una donación y arranca el flujo por Mercado Pago.
+//
+// Monteflori no tiene funciones pagas: donar no desbloquea nada. Es apoyo al
+// proyecto, no una suscripción con beneficios, y la pantalla lo dice claro.
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Heart, Check, Loader2, Sparkles } from "lucide-react";
+import { Check, Heart, Sparkles } from "lucide-react";
 import { useAuthContext } from "@/components/auth/AuthProvider";
 import { usePerfil } from "@/hooks/usePerfil";
+import { PageHeader, Spinner } from "@/components/ui/kit";
 import { DONACION_MINIMA_ARS, esDonanteActivo } from "@/lib/planes";
 
-// Monteflori no tiene funciones pagas: donar no desbloquea nada. Es apoyo al
-// proyecto, no una suscripción. Lo que se lista es lo que la app hace para
-// todos, para que quede claro qué se está bancando.
 const LO_QUE_HACE = [
-  "Materias, notas y constructor de fórmula de cálculo",
+  "Materias, notas y fórmula de cálculo a tu medida",
   "Sincronización con SIU Guaraní desde la extensión",
-  "Plan de ruta, correlativas y gráficos",
+  "Plan de carrera, correlativas y gráficos",
   "Fechas de parciales y finales en tu Google Calendar",
 ];
 
+const MONTOS = [DONACION_MINIMA_ARS, DONACION_MINIMA_ARS * 2, DONACION_MINIMA_ARS * 4];
+const pesos = (n: number) => `$${n.toLocaleString("es-AR")}`;
+
+function AvisoVolviendo({ yaEsDonante }: { yaEsDonante: boolean }) {
+  const volviendo = useSearchParams().get("estado") === "volviendo";
+  if (!volviendo || yaEsDonante) return null;
+  return (
+    <div className="notice notice-warn">
+      Estamos esperando la confirmación de Mercado Pago. Puede tardar unos minutos en verse acá: no hace
+      falta que dones de nuevo.
+    </div>
+  );
+}
+
 export default function DonarPage() {
   const { user } = useAuthContext();
-  const { perfil, loading } = usePerfil(user?.uid ?? null);
-  const searchParams = useSearchParams();
+  const { perfil, loading } = usePerfil();
 
   const [monto, setMonto] = useState<number>(DONACION_MINIMA_ARS);
+  const [otro, setOtro] = useState("");
   const [procesando, setProcesando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const yaEsDonante = esDonanteActivo(perfil?.suscripcion);
-  const volviendoDePago = searchParams.get("estado") === "volviendo";
+  const hasta = perfil?.suscripcion?.donante_activo_hasta;
+  const montoValido = Number.isFinite(monto) && monto >= DONACION_MINIMA_ARS;
 
   async function handleDonar() {
-    if (!user) return;
+    if (!user || !montoValido) return;
     setError(null);
     setProcesando(true);
     try {
@@ -44,7 +60,7 @@ export default function DonarPage() {
         body: JSON.stringify({ monto }),
       });
       const datos = await res.json();
-      if (!res.ok) throw new Error(datos.error ?? "Error");
+      if (!res.ok) throw new Error(datos.error ?? "No se pudo iniciar la donación.");
       window.location.href = datos.url;
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo iniciar la donación.");
@@ -52,122 +68,108 @@ export default function DonarPage() {
     }
   }
 
-  const cardStyle = {
-    background: "var(--color-card)",
-    borderColor: "var(--color-card-border)",
-  };
-
   return (
-    <div className="min-h-screen" style={{ background: "var(--background)" }}>
-      <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
-        <div>
-          <h1 className="text-2xl font-extrabold flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-            <Heart size={22} style={{ color: "var(--color-alert)" }} />
-            Bancá Monteflori
-          </h1>
-          <p className="text-sm mt-1" style={{ color: "var(--foreground-muted)" }}>
-            Monteflori es gratis y lo va a seguir siendo. <strong>Donar no desbloquea
-            funciones</strong>: todo lo que hace la app está disponible para todos. Las
-            donaciones bancan lo que cuesta tenerla en pie — el dominio y el hosting.
-          </p>
-        </div>
+    <main className="page page-narrow space-y-4">
+      <PageHeader
+        titulo="Bancá Monteflori"
+        subtitulo="Monteflori es gratis y lo va a seguir siendo. Donar no desbloquea nada: todo está disponible para todos. Las donaciones pagan lo que cuesta tenerlo en pie, el hosting y el dominio."
+      />
 
-        {volviendoDePago && !yaEsDonante && (
-          <div className="p-3.5 rounded-xl text-sm"
-            style={{ background: "var(--estado-cursando-bg)", color: "var(--estado-cursando)" }}>
-            Estamos esperando la confirmación de Mercado Pago. Puede tardar unos minutos
-            en verse reflejado — no hace falta que dones de nuevo.
-          </div>
-        )}
+      <Suspense fallback={null}>
+        <AvisoVolviendo yaEsDonante={yaEsDonante} />
+      </Suspense>
 
-        {!loading && yaEsDonante && (
-          <div className="p-4 rounded-2xl border flex items-center gap-3"
-            style={{ background: "var(--estado-aprobada-bg)", borderColor: "var(--estado-aprobada)" }}>
-            <Sparkles size={18} style={{ color: "var(--estado-aprobada)" }} />
-            <div>
-              <p className="font-bold text-sm" style={{ color: "var(--estado-aprobada)" }}>
-                Estás bancando el proyecto — ¡gracias!
-              </p>
-              {perfil?.suscripcion?.donante_activo_hasta && (
-                <p className="text-xs mt-0.5" style={{ color: "var(--estado-aprobada)" }}>
-                  Tu aporte está vigente hasta el{" "}
-                  {new Date(perfil.suscripcion.donante_activo_hasta).toLocaleDateString("es-AR", {
-                    day: "numeric", month: "long", year: "numeric",
-                  })}
-                  . Podés cancelar cuando quieras desde Mercado Pago.
-                </p>
+      {!loading && yaEsDonante && (
+        <div className="notice notice-success items-center !mt-0">
+          <Sparkles size={18} className="flex-shrink-0" />
+          <div>
+            <p className="font-bold">Estás bancando el proyecto. ¡Gracias!</p>
+            <p className="text-xs mt-0.5">
+              {hasta && (
+                <>Tu aporte está vigente hasta el{" "}
+                  {new Date(hasta).toLocaleDateString("es-AR", { day: "numeric", month: "long", year: "numeric" })}.{" "}
+                </>
               )}
-            </div>
+              Podés cancelarlo cuando quieras desde Mercado Pago.
+            </p>
           </div>
-        )}
-
-        <div className="rounded-2xl p-5 border" style={cardStyle}>
-          <h2 className="font-bold text-base mb-3" style={{ color: "var(--foreground)" }}>
-            Lo que estás bancando
-          </h2>
-          <ul className="space-y-2">
-            {LO_QUE_HACE.map((b) => (
-              <li key={b} className="flex items-start gap-2 text-sm" style={{ color: "var(--foreground-muted)" }}>
-                <Check size={14} className="mt-0.5 flex-shrink-0" style={{ color: "var(--color-primary)" }} />
-                {b}
-              </li>
-            ))}
-          </ul>
-          <p className="text-xs mt-4 pt-3 border-t" style={{ color: "var(--foreground-subtle)", borderColor: "var(--color-card-border)" }}>
-            Todo esto es gratis para cualquiera, dones o no. Podés cancelar cuando quieras
-            desde Mercado Pago.
-          </p>
         </div>
+      )}
 
-        {!yaEsDonante && (
-          <div className="rounded-2xl p-5 border space-y-3" style={cardStyle}>
-            <label className="block text-sm font-semibold" style={{ color: "var(--foreground-muted)" }}>
-              ¿Cuánto querés donar por mes?
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {[DONACION_MINIMA_ARS, DONACION_MINIMA_ARS * 2, DONACION_MINIMA_ARS * 4].map((m) => (
-                <button key={m} onClick={() => setMonto(m)}
-                  className="px-4 py-2 rounded-xl text-sm font-bold border transition-all"
-                  style={{
-                    background: monto === m ? "var(--color-primary)" : "var(--background-alt)",
-                    color: monto === m ? "white" : "var(--foreground-muted)",
-                    borderColor: monto === m ? "var(--color-primary)" : "var(--color-card-border)",
-                  }}>
-                  ${m.toLocaleString("es-AR")}
+      {!loading && !yaEsDonante && (
+        <section className="card card-pad !mt-0">
+          <h2 className="section-title" id="monto-label">¿Con cuánto querés ayudar por mes?</h2>
+          <div className="grid grid-cols-3 gap-2 mt-3" role="radiogroup" aria-labelledby="monto-label">
+            {MONTOS.map((m) => {
+              const elegido = otro === "" && monto === m;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  role="radio"
+                  aria-checked={elegido}
+                  onClick={() => { setMonto(m); setOtro(""); }}
+                  className={`py-3.5 rounded-[var(--radius-md)] border-[1.5px] font-display tabular text-xl font-semibold transition-colors ${
+                    elegido
+                      ? "border-primary bg-primary-soft text-primary"
+                      : "border-card-border text-foreground hover:border-foreground-subtle"
+                  }`}
+                >
+                  {pesos(m)}
                 </button>
-              ))}
+              );
+            })}
+          </div>
+
+          <div className="mt-3">
+            <label className="label" htmlFor="monto-otro">O elegí otro monto</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-foreground-subtle font-bold pointer-events-none">$</span>
               <input
+                id="monto-otro"
+                className="input no-spin tabular !pl-8"
                 type="number"
+                inputMode="numeric"
                 min={DONACION_MINIMA_ARS}
-                value={monto}
-                onChange={(e) => setMonto(Number(e.target.value))}
-                className="w-32 px-3 py-2 rounded-xl text-sm font-bold"
-                style={{
-                  background: "var(--background-alt)",
-                  border: "1.5px solid var(--color-card-border)",
-                  color: "var(--foreground)",
-                  outline: "none",
-                }}
-                aria-label="Otro monto"
+                value={otro}
+                onChange={(e) => { setOtro(e.target.value); setMonto(Number(e.target.value)); }}
+                placeholder={`${DONACION_MINIMA_ARS.toLocaleString("es-AR")} o más`}
+                aria-invalid={otro !== "" && !montoValido}
               />
             </div>
-
-            {error && (
-              <p className="text-sm font-medium" style={{ color: "var(--color-alert)" }}>{error}</p>
+            {otro !== "" && !montoValido && (
+              <p className="text-xs font-semibold text-alert mt-1.5">El mínimo es {pesos(DONACION_MINIMA_ARS)}.</p>
             )}
-
-            <button
-              onClick={handleDonar}
-              disabled={procesando || monto < DONACION_MINIMA_ARS}
-              className="w-full py-3 rounded-xl font-bold text-sm transition-all hover:opacity-90 flex items-center justify-center gap-2 disabled:opacity-50"
-              style={{ background: "var(--color-primary)", color: "white" }}
-            >
-              {procesando ? <Loader2 size={16} className="animate-spin" /> : <Heart size={16} />}
-              {procesando ? "Redirigiendo a Mercado Pago..." : "Donar con Mercado Pago"}
-            </button>
           </div>
-        )}
-      </div>
-    </div>
+
+          {error && <div className="notice notice-error mt-4" role="alert">{error}</div>}
+
+          <button type="button" onClick={handleDonar} disabled={procesando || !montoValido} className="btn btn-primary btn-lg btn-block mt-5">
+            {procesando ? <Spinner /> : <Heart size={16} />}
+            {procesando
+              ? "Abriendo Mercado Pago..."
+              : montoValido
+              ? `Donar ${pesos(monto)} por mes`
+              : "Donar con Mercado Pago"}
+          </button>
+          <p className="hint text-center">
+            Es un aporte mensual por Mercado Pago. Lo cancelás cuando quieras desde ahí, sin pedirnos nada.
+          </p>
+        </section>
+      )}
+
+      <section className="card card-pad">
+        <h2 className="section-title mb-3">Lo que estás bancando</h2>
+        <ul className="space-y-2.5">
+          {LO_QUE_HACE.map((b) => (
+            <li key={b} className="flex items-start gap-2.5 text-sm text-foreground-muted">
+              <Check size={16} strokeWidth={3} className="mt-0.5 flex-shrink-0 text-primary" />
+              {b}
+            </li>
+          ))}
+        </ul>
+        <p className="hint !mt-4 pt-3 border-t border-card-border">Todo esto es gratis para cualquiera, dones o no.</p>
+      </section>
+    </main>
   );
 }

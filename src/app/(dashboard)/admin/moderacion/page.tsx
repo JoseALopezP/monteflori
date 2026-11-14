@@ -8,8 +8,10 @@
 // ve el mismo "no encontrado" que en cualquier ruta inexistente.
 
 import { useCallback, useEffect, useState } from "react";
-import { Shield, Loader2, RotateCcw, Trash2, Flag } from "lucide-react";
+import { RotateCcw, Trash2, Flag, ShieldCheck } from "lucide-react";
 import { useAuthContext } from "@/components/auth/AuthProvider";
+import { useConfirm, useToast } from "@/components/ui/Feedback";
+import { EmptyState, Esqueleto, PageHeader, Spinner } from "@/components/ui/kit";
 
 interface ComentarioReportado {
   id: string;
@@ -27,10 +29,11 @@ export default function ModeracionPage() {
   const [cargando, setCargando] = useState(true);
   const [sinAcceso, setSinAcceso] = useState(false);
   const [procesando, setProcesando] = useState<string | null>(null);
+  const toast = useToast();
+  const confirmar = useConfirm();
 
   const cargar = useCallback(async () => {
     if (!user) return;
-    setCargando(true);
     try {
       const token = await user.getIdToken();
       const res = await fetch("/api/admin/moderacion", {
@@ -53,7 +56,13 @@ export default function ModeracionPage() {
 
   async function actuar(c: ComentarioReportado, accion: "restaurar" | "eliminar") {
     if (!user || !c.materia_catalogo_id) return;
-    if (accion === "eliminar" && !confirm("¿Eliminar este comentario definitivamente?")) return;
+    if (accion === "eliminar") {
+      const ok = await confirmar({
+        titulo: "¿Eliminar este comentario?",
+        mensaje: "Se borra definitivamente. No se puede deshacer.",
+      });
+      if (!ok) return;
+    }
 
     setProcesando(c.id);
     try {
@@ -67,7 +76,12 @@ export default function ModeracionPage() {
           accion,
         }),
       });
-      if (res.ok) setComentarios((prev) => prev.filter((x) => x.id !== c.id));
+      if (res.ok) {
+        setComentarios((prev) => prev.filter((x) => x.id !== c.id));
+        toast(accion === "eliminar" ? "Comentario eliminado" : "Comentario restaurado");
+      } else {
+        toast("No se pudo completar la acción", "error");
+      }
     } finally {
       setProcesando(null);
     }
@@ -75,90 +89,51 @@ export default function ModeracionPage() {
 
   if (sinAcceso) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--background)" }}>
-        <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-          Página no encontrada.
-        </p>
-      </div>
+      <main className="page page-narrow">
+        <p className="text-sm text-foreground-muted text-center py-16">Página no encontrada.</p>
+      </main>
     );
   }
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--background)" }}>
-      <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
-        <div>
-          <h1 className="text-2xl font-extrabold flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-            <Shield size={22} style={{ color: "var(--color-primary)" }} />
-            Moderación
-          </h1>
-          <p className="text-sm mt-1" style={{ color: "var(--foreground-muted)" }}>
-            Comentarios reportados. Los que llegaron al umbral ya están ocultos.
-          </p>
-        </div>
+    <main className="page page-narrow">
+      <PageHeader
+        titulo="Moderación"
+        subtitulo="Comentarios reportados. Los que llegaron al umbral ya están ocultos."
+      />
 
-        {cargando ? (
-          <div className="space-y-3">
-            {[1, 2].map((i) => <div key={i} className="skeleton h-28 rounded-2xl" />)}
-          </div>
-        ) : comentarios.length === 0 ? (
-          <div className="rounded-2xl p-8 border text-center"
-            style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
-            <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-              No hay nada reportado. Todo tranquilo.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {comentarios.map((c) => (
-              <div key={c.id} className="rounded-2xl p-4 border"
-                style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
-                <div className="flex items-center gap-2 flex-wrap mb-2">
-                  <span className="text-sm font-bold" style={{ color: "var(--foreground)" }}>
-                    {c.autor_alias}
-                  </span>
-                  <span className="text-xs flex items-center gap-1 px-2 py-0.5 rounded-full"
-                    style={{ background: "var(--estado-libre-bg)", color: "var(--color-alert)" }}>
-                    <Flag size={10} /> {c.reportes}
-                  </span>
-                  {c.oculto && (
-                    <span className="text-xs px-2 py-0.5 rounded-full"
-                      style={{ background: "var(--background-alt)", color: "var(--foreground-subtle)" }}>
-                      Oculto
-                    </span>
-                  )}
-                  <span className="text-xs" style={{ color: "var(--foreground-subtle)" }}>
-                    {new Date(c.creado_en).toLocaleString("es-AR")}
-                  </span>
-                </div>
-
-                <p className="text-sm whitespace-pre-wrap break-words mb-3"
-                  style={{ color: "var(--foreground)" }}>
-                  {c.texto}
-                </p>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => actuar(c, "restaurar")}
-                    disabled={procesando === c.id}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all hover:opacity-80 disabled:opacity-50"
-                    style={{ borderColor: "var(--color-card-border)", color: "var(--foreground)" }}>
-                    {procesando === c.id ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
-                    Restaurar
-                  </button>
-                  <button
-                    onClick={() => actuar(c, "eliminar")}
-                    disabled={procesando === c.id}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all hover:opacity-80 disabled:opacity-50"
-                    style={{ borderColor: "var(--color-card-border)", color: "var(--color-alert)" }}>
-                    <Trash2 size={12} />
-                    Eliminar
-                  </button>
-                </div>
+      {cargando ? (
+        <Esqueleto filas={2} alto="h-28" />
+      ) : comentarios.length === 0 ? (
+        <EmptyState icono={<ShieldCheck size={22} />} titulo="No hay nada reportado" texto="Todo tranquilo." />
+      ) : (
+        <ul className="space-y-3">
+          {comentarios.map((c) => (
+            <li key={c.id} className="card card-pad">
+              <div className="flex items-center gap-2 flex-wrap mb-2">
+                <span className="text-sm font-bold text-foreground">{c.autor_alias}</span>
+                <span className="badge" style={{ background: "var(--estado-libre-bg)", color: "var(--color-alert)" }}>
+                  <Flag size={10} /> {c.reportes} {c.reportes === 1 ? "reporte" : "reportes"}
+                </span>
+                {c.oculto && <span className="badge">Oculto</span>}
+                <span className="text-xs text-foreground-subtle">{new Date(c.creado_en).toLocaleString("es-AR")}</span>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+
+              <p className="text-sm whitespace-pre-wrap break-words text-foreground mb-4">{c.texto}</p>
+
+              <div className="flex gap-2">
+                <button type="button" onClick={() => actuar(c, "restaurar")} disabled={procesando === c.id} className="btn btn-secondary btn-sm">
+                  {procesando === c.id ? <Spinner size={13} /> : <RotateCcw size={13} />}
+                  Está bien, restaurar
+                </button>
+                <button type="button" onClick={() => actuar(c, "eliminar")} disabled={procesando === c.id} className="btn btn-danger-ghost btn-sm">
+                  <Trash2 size={13} /> Eliminar
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </main>
   );
 }

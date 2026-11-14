@@ -1,156 +1,170 @@
 "use client";
 
 // src/app/(dashboard)/materias/page.tsx
-// Vista completa de todas las materias con filtros
+// Todas las materias de la carrera que se está mirando: buscador, filtro por
+// estado y la lista agrupada (primero lo que se está cursando).
 
-import { useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Plus, Search, BookOpen, Import, Layers } from "lucide-react";
-import { useAuthContext } from "@/components/auth/AuthProvider";
+import { BookOpen, Plus, RefreshCw, Search, X } from "lucide-react";
 import { useMaterias } from "@/hooks/useMaterias";
 import { useCarreraActivaContext } from "@/components/dashboard/CarreraActivaProvider";
-import MateriaCard from "@/components/ui/MateriaCard";
-import { updateEvaluacion } from "@/lib/firestore";
+import { MateriaFila } from "@/components/materias/MateriaFila";
+import { EmptyState, Esqueleto, PageHeader } from "@/components/ui/kit";
+import { ESTADOS, ESTADOS_ORDEN } from "@/lib/estados";
+import { normalizarTexto } from "@/lib/catalogo";
 import { EstadoMateria } from "@/types";
 
-const FILTROS_ESTADO: { label: string; value: EstadoMateria | "todas" }[] = [
-  { label: "Todas", value: "todas" },
-  { label: "Cursando", value: "cursando" },
-  { label: "Aprobadas", value: "aprobada" },
-  { label: "Regulares", value: "regular" },
-  { label: "Pendientes", value: "pendiente" },
-  { label: "Libres", value: "libre" },
-];
+type Filtro = EstadoMateria | "todas";
 
+// useSearchParams necesita un límite de Suspense para que la página se pueda prerenderizar.
 export default function MateriasPage() {
-  const { user } = useAuthContext();
-  const { materias, loading } = useMaterias(user?.uid ?? null);
-  const { carreraActivaId } = useCarreraActivaContext();
+  return (
+    <Suspense fallback={null}>
+      <MateriasContenido />
+    </Suspense>
+  );
+}
+
+function MateriasContenido() {
+  const { loading } = useMaterias();
+  const { materiasVisibles, carreraActiva } = useCarreraActivaContext();
 
   const [busqueda, setBusqueda] = useState("");
-  const [filtroEstado, setFiltroEstado] = useState<EstadoMateria | "todas">("todas");
+  // Se puede llegar con el filtro ya puesto (ej. desde Gráficos: /materias?estado=pendiente).
+  const pedido = useSearchParams().get("estado");
+  const [filtro, setFiltro] = useState<Filtro>(
+    pedido && pedido in ESTADOS ? (pedido as EstadoMateria) : "todas"
+  );
 
-  const materiasFiltradas = materias.filter((m) => {
-    const matchBusqueda = m.nombre.toLowerCase().includes(busqueda.toLowerCase());
-    const matchEstado = filtroEstado === "todas" || m.estado === filtroEstado;
-    const matchCarrera = !carreraActivaId || m.carreras_vinculadas?.includes(carreraActivaId);
-    return matchBusqueda && matchEstado && matchCarrera;
-  });
+  const conteo = useMemo(() => {
+    const c: Partial<Record<EstadoMateria, number>> = {};
+    materiasVisibles.forEach((m) => { c[m.estado] = (c[m.estado] ?? 0) + 1; });
+    return c;
+  }, [materiasVisibles]);
 
-  async function handleEditarNota(materiaId: string, evalId: string, nota: number | null) {
-    if (!user?.uid) return;
-    const materia = materias.find((m) => m.id === materiaId);
-    if (!materia) return;
-    await updateEvaluacion(user.uid, materiaId, evalId, { nota }, materia.evaluaciones);
-  }
+  const grupos = useMemo(() => {
+    // Sin acentos ni mayúsculas: "analisis" encuentra "Análisis".
+    const q = normalizarTexto(busqueda);
+    const filtradas = materiasVisibles.filter(
+      (m) =>
+        (filtro === "todas" || m.estado === filtro) &&
+        (q === "" ||
+          normalizarTexto(m.nombre).includes(q) ||
+          normalizarTexto(m.codigo_interno ?? "").includes(q))
+    );
+    return ESTADOS_ORDEN
+      .map((estado) => ({ estado, materias: filtradas.filter((m) => m.estado === estado) }))
+      .filter((g) => g.materias.length > 0);
+  }, [materiasVisibles, busqueda, filtro]);
+
+  const totalMostradas = grupos.reduce((acc, g) => acc + g.materias.length, 0);
+  const hayFiltros = busqueda !== "" || filtro !== "todas";
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--background)" }}>
-      <div className="max-w-3xl mx-auto px-4 py-6">
-
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-extrabold" style={{ color: "var(--foreground)" }}>
-              Todas las materias
-            </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link href="/materias/pasos"
-              className="flex items-center gap-2 px-3 py-2 rounded-xl font-semibold text-sm border transition-all hover:opacity-80"
-              style={{ borderColor: "var(--color-card-border)", color: "var(--foreground)" }}>
-              <Layers size={16} /> <span className="hidden sm:inline">Plan de ruta</span>
+    <main className="page page-narrow">
+      <PageHeader
+        titulo="Materias"
+        subtitulo={
+          loading
+            ? undefined
+            : `${materiasVisibles.length} ${materiasVisibles.length === 1 ? "materia" : "materias"}${
+                carreraActiva ? ` en ${carreraActiva.nombre}` : ""
+              }`
+        }
+        acciones={
+          <>
+            <Link href="/materias/importar" className="btn btn-secondary" title="Traer materias y notas de SIU Guaraní">
+              <RefreshCw size={15} /> <span className="hidden sm:inline">Traer de SIU</span>
             </Link>
-            <Link href="/materias/importar"
-              className="flex items-center gap-2 px-3 py-2 rounded-xl font-semibold text-sm border transition-all hover:opacity-80"
-              style={{ borderColor: "var(--color-card-border)", color: "var(--foreground)" }}>
-              <Import size={16} /> <span className="hidden sm:inline">Importar de SIU Guaraní</span>
-            </Link>
-            <Link href="/materias/nueva"
-              className="flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm transition-all hover:opacity-90"
-              style={{ background: "var(--color-primary)", color: "white" }}>
+            <Link href="/materias/nueva" className="btn btn-primary">
               <Plus size={16} /> Nueva
             </Link>
-          </div>
-        </div>
+          </>
+        }
+      />
 
-        {/* Búsqueda */}
-        <div className="relative mb-4">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2"
-            style={{ color: "var(--foreground-subtle)" }} />
-          <input
-            id="buscar-materia"
-            type="text"
-            placeholder="Buscar materia..."
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 rounded-xl text-sm border"
-            style={{
-              background: "var(--color-card)",
-              borderColor: "var(--color-card-border)",
-              color: "var(--foreground)",
-              outline: "none",
-            }}
-          />
-        </div>
-
-        {/* Filtros de estado */}
-        <div className="flex gap-2 overflow-x-auto pb-2 mb-5 scrollbar-hide">
-          {FILTROS_ESTADO.map((f) => (
-            <button
-              key={f.value}
-              onClick={() => setFiltroEstado(f.value)}
-              className="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
-              style={{
-                background: filtroEstado === f.value ? "var(--color-primary)" : "var(--color-card)",
-                color: filtroEstado === f.value ? "white" : "var(--foreground-muted)",
-                border: `1.5px solid ${filtroEstado === f.value ? "var(--color-primary)" : "var(--color-card-border)"}`,
-              }}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Lista */}
-        {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="skeleton h-20 rounded-2xl" />
-            ))}
-          </div>
-        ) : materiasFiltradas.length === 0 ? (
-          <div className="text-center py-12">
-            <BookOpen size={40} className="mx-auto mb-3" style={{ color: "var(--foreground-subtle)" }} />
-            <p className="font-semibold" style={{ color: "var(--foreground-muted)" }}>
-              {busqueda || filtroEstado !== "todas"
-                ? "No se encontraron materias con esos filtros"
-                : "No tenés materias cargadas aún"}
-            </p>
-            {!busqueda && filtroEstado === "todas" && (
-              <Link href="/materias/nueva"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm mt-4 transition-all hover:opacity-90"
-                style={{ background: "var(--color-primary)", color: "white" }}>
-                <Plus size={14} /> Agregar primera materia
-              </Link>
+      {loading ? (
+        <Esqueleto filas={5} alto="h-14" />
+      ) : materiasVisibles.length === 0 ? (
+        <EmptyState
+          icono={<BookOpen size={22} />}
+          titulo={carreraActiva ? `Todavía no hay materias en ${carreraActiva.nombre}` : "Todavía no cargaste materias"}
+          texto="Podés traerlas todas juntas desde SIU Guaraní o cargarlas una por una."
+        >
+          <Link href="/materias/importar" className="btn btn-primary">
+            <RefreshCw size={15} /> Traer de SIU Guaraní
+          </Link>
+          <Link href="/materias/nueva" className="btn btn-secondary">
+            <Plus size={16} /> Cargar a mano
+          </Link>
+        </EmptyState>
+      ) : (
+        <>
+          <div className="relative mb-3">
+            <Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-foreground-subtle pointer-events-none" />
+            <input
+              id="buscar-materia"
+              type="search"
+              className="input !pl-10 !pr-10"
+              placeholder="Buscar por nombre o código"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              aria-label="Buscar materia"
+            />
+            {busqueda && (
+              <button
+                type="button"
+                className="icon-btn icon-btn-sm absolute right-1.5 top-1/2 -translate-y-1/2"
+                onClick={() => setBusqueda("")}
+                aria-label="Borrar búsqueda"
+              >
+                <X size={15} />
+              </button>
             )}
           </div>
-        ) : (
-          <div className="space-y-3">
-            {materiasFiltradas.map((m) => (
-              <MateriaCard
-                key={m.id}
-                materia={m}
-                onEditarNota={handleEditarNota}
-                onAbrirDetalle={(id) => window.location.href = `/materias/${id}`}
-              />
+
+          <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 pb-1 mb-5" role="group" aria-label="Filtrar por estado">
+            <button type="button" className="chip" aria-pressed={filtro === "todas"} onClick={() => setFiltro("todas")}>
+              Todas <span className="opacity-70 tabular">{materiasVisibles.length}</span>
+            </button>
+            {ESTADOS_ORDEN.filter((e) => conteo[e]).map((e) => (
+              <button key={e} type="button" className="chip" aria-pressed={filtro === e} onClick={() => setFiltro(e)}>
+                {ESTADOS[e].plural} <span className="opacity-70 tabular">{conteo[e]}</span>
+              </button>
             ))}
-            <p className="text-xs text-center pt-2" style={{ color: "var(--foreground-subtle)" }}>
-              {materiasFiltradas.length} materia{materiasFiltradas.length !== 1 ? "s" : ""}
-            </p>
           </div>
-        )}
-      </div>
-    </div>
+
+          {totalMostradas === 0 ? (
+            <EmptyState
+              icono={<Search size={22} />}
+              titulo="Ninguna materia coincide"
+              texto={busqueda ? `No encontramos nada con "${busqueda}".` : undefined}
+            >
+              {hayFiltros && (
+                <button type="button" className="btn btn-secondary" onClick={() => { setBusqueda(""); setFiltro("todas"); }}>
+                  Ver todas
+                </button>
+              )}
+            </EmptyState>
+          ) : (
+            <div className="space-y-5">
+              {grupos.map(({ estado, materias }) => (
+                <section key={estado}>
+                  <h2 className="eyebrow mb-2 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full" style={{ background: ESTADOS[estado].color }} />
+                    {ESTADOS[estado].plural} · {materias.length}
+                  </h2>
+                  <div className="card overflow-hidden divide-y divide-card-border">
+                    {materias.map((m) => <MateriaFila key={m.id} materia={m} sinEstado />)}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </main>
   );
 }

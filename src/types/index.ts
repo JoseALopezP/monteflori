@@ -80,6 +80,24 @@ export interface FechaImportante {
   notificado?: boolean;
 }
 
+// ── Historia académica ─────────────────────────────────────
+
+/**
+ * Un renglón de la Historia académica de SIU Guaraní: una regularidad, una
+ * promoción o un examen, con su fecha y su nota. Es lo que permite graficar la
+ * carrera en el tiempo y saber cuándo vence una regularidad.
+ */
+export interface ActoAcademico {
+  tipo: "en_curso" | "regularidad" | "promocion" | "examen";
+  /** Texto tal cual lo informa SIU: "Aprobado", "Reprobado", "Ausente"... */
+  resultado: string | null;
+  nota: number | null;
+  /** ISO (YYYY-MM-DD) */
+  fecha: string | null;
+  /** ISO (YYYY-MM-DD), solo regularidades */
+  vencimiento: string | null;
+}
+
 // ── Materia ────────────────────────────────────────────────
 
 export interface Materia {
@@ -111,6 +129,11 @@ export interface Materia {
    * el vínculo solo sirve para encontrar los comentarios de la materia.
    */
   catalogo_id?: string;
+  /**
+   * Historia académica de la materia, tal como la trae la extensión. Se
+   * reemplaza entera en cada sincronización (SIU es la fuente de verdad).
+   */
+  actos_academicos?: ActoAcademico[];
 }
 
 // ── Carrera ────────────────────────────────────────────────

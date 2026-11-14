@@ -1,190 +1,119 @@
 "use client";
 
 // src/components/dashboard/ProximasFechas.tsx
-// Timeline de próximas fechas importantes
+// "Lo que viene": las próximas fechas de examen, de la más cercana a la más
+// lejana. Cada una lleva a su materia.
 
-import { Materia, FechaImportante } from "@/types";
-import { Calendar, AlertCircle, Clock } from "lucide-react";
-import { format, differenceInDays, parseISO, isToday, isTomorrow } from "date-fns";
+import Link from "next/link";
+import { CalendarArrowDown, CalendarDays, CalendarPlus } from "lucide-react";
+import { useToast } from "@/components/ui/Feedback";
+import { descargarIcs } from "@/lib/ics";
+import { infoTipo } from "@/lib/estados";
+import { diasHasta, etiquetaRelativa, parsearFecha, proximasFechas } from "@/lib/fechas";
+import { Materia } from "@/types";
+import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
 interface ProximasFechasProps {
   materias: Materia[];
-  dias?: number;
+  /** Cuántas mostrar como mucho */
+  maximo?: number;
+  onAgendar: () => void;
 }
 
-interface FechaConMateria extends FechaImportante {
-  nombreMateria: string;
-}
+export function ProximasFechas({ materias, maximo = 5, onAgendar }: ProximasFechasProps) {
+  const toast = useToast();
+  const todas = proximasFechas(materias);
+  const fechas = todas.slice(0, maximo);
 
-const TIPO_COLORES: Record<string, string> = {
-  parcial: "var(--color-accent)",
-  recuperatorio: "var(--color-secondary)",
-  final: "var(--color-alert)",
-  tp: "var(--color-primary)",
-  coloquio: "var(--color-primary-light)",
-  otro: "var(--foreground-muted)",
-};
-
-const TIPO_LABELS: Record<string, string> = {
-  parcial: "Parcial",
-  recuperatorio: "Recuperatorio",
-  final: "Final",
-  tp: "TP",
-  coloquio: "Coloquio",
-  otro: "Evento",
-};
-
-export function ProximasFechas({ materias, dias = 30 }: ProximasFechasProps) {
-  const hoy = new Date();
-
-  // Recopilar todas las fechas futuras de todas las materias
-  const fechas: FechaConMateria[] = [];
-
-  materias.forEach((m) => {
-    (m.fechas_importantes ?? []).forEach((f) => {
-      if (!f.fecha) return;
-      const diff = differenceInDays(parseISO(f.fecha), hoy);
-      if (diff >= 0 && diff <= dias) {
-        fechas.push({ ...f, nombreMateria: m.nombre });
-      }
-    });
-  });
-
-  // Ordenar por fecha
-  fechas.sort((a, b) => a.fecha.localeCompare(b.fecha));
-
-  if (fechas.length === 0) {
-    return (
-      <div
-        className="rounded-2xl p-5 border"
-        style={{
-          background: "var(--color-card)",
-          borderColor: "var(--color-card-border)",
-          boxShadow: "var(--shadow-sm)",
-        }}
-      >
-        <h3
-          className="font-bold text-base mb-3 flex items-center gap-2"
-          style={{ color: "var(--foreground)" }}
-        >
-          <Calendar size={16} style={{ color: "var(--color-secondary)" }} />
-          Próximas fechas
-        </h3>
-        <p
-          className="text-sm text-center py-4"
-          style={{ color: "var(--foreground-subtle)" }}
-        >
-          No hay fechas cargadas para los próximos {dias} días 🗓️
-        </p>
-      </div>
-    );
-  }
-
-  function getLabelFecha(fechaStr: string) {
-    const fecha = parseISO(fechaStr);
-    const diff = differenceInDays(fecha, hoy);
-    if (isToday(fecha)) return { label: "HOY", urgente: true };
-    if (isTomorrow(fecha)) return { label: "MAÑANA", urgente: true };
-    if (diff <= 7) return { label: `en ${diff} días`, urgente: diff <= 3 };
-    return { label: format(fecha, "d 'de' MMM", { locale: es }), urgente: false };
+  function llevarAlCalendario() {
+    descargarIcs(todas, "monteflori-fechas.ics");
+    toast("Archivo descargado: abrilo para sumarlo a tu calendario");
   }
 
   return (
-    <div
-      className="rounded-2xl p-5 border"
-      style={{
-        background: "var(--color-card)",
-        borderColor: "var(--color-card-border)",
-        boxShadow: "var(--shadow-sm)",
-      }}
-    >
-      <h3
-        className="font-bold text-base mb-4 flex items-center gap-2"
-        style={{ color: "var(--foreground)" }}
-      >
-        <Calendar size={16} style={{ color: "var(--color-secondary)" }} />
-        Próximas fechas
-        <span
-          className="ml-auto text-xs font-medium px-2 py-0.5 rounded-full"
-          style={{
-            background: "var(--estado-aprobada-bg)",
-            color: "var(--estado-aprobada)",
-          }}
-        >
-          {fechas.length} evento{fechas.length !== 1 ? "s" : ""}
-        </span>
-      </h3>
+    <section className="card card-pad flex flex-col">
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <h2 className="section-title flex items-center gap-2">
+          <CalendarDays size={17} className="text-accent" />
+          Lo que viene
+        </h2>
+        <button type="button" className="btn btn-ghost btn-sm -mr-2" onClick={onAgendar}>
+          <CalendarPlus size={14} /> Agendar
+        </button>
+      </div>
 
-      <div className="space-y-3">
-        {fechas.map((f, i) => {
-          const { label, urgente } = getLabelFecha(f.fecha);
-          const color = TIPO_COLORES[f.tipo] ?? "var(--foreground-muted)";
-
-          return (
-            <div
-              key={`${f.id}-${i}`}
-              className="flex items-center gap-3 p-3 rounded-xl transition-all hover:opacity-90"
-              style={{
-                background: urgente
-                  ? "var(--estado-libre-bg)"
-                  : "var(--background-alt)",
-                border: urgente
-                  ? "1px solid var(--color-alert-light)"
-                  : "1px solid transparent",
-              }}
-            >
-              {/* Indicador de tipo */}
-              <div
-                className="w-1 self-stretch rounded-full flex-shrink-0"
-                style={{ background: color, minHeight: 24 }}
-              />
-
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+      {fechas.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
+          <p className="text-sm font-semibold text-foreground-muted">No tenés fechas agendadas</p>
+          <p className="text-xs text-foreground-subtle mt-1 max-w-xs">
+            Agendá tus parciales y finales para verlos acá y que no se te pase ninguno.
+          </p>
+        </div>
+      ) : (
+        <ul className="space-y-1 -mx-2">
+          {fechas.map((f) => {
+            const dias = diasHasta(f.fecha) ?? 0;
+            const urgente = dias <= 3;
+            const d = parsearFecha(f.fecha)!;
+            return (
+              <li key={`${f.materiaId}-${f.id}`}>
+                <Link
+                  href={`/materias/${f.materiaId}`}
+                  className="row-hover flex items-center gap-3 px-2 py-2 rounded-[var(--radius-md)]"
+                >
+                  {/* Hoja de calendario */}
                   <span
-                    className="text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded-md"
+                    className="w-11 h-12 rounded-[var(--radius-sm)] flex flex-col items-center justify-center flex-shrink-0 leading-none"
                     style={{
-                      background: `${color}22`,
-                      color,
+                      background: urgente ? "var(--estado-libre-bg)" : "var(--background-alt)",
+                      color: urgente ? "var(--color-alert)" : "var(--foreground)",
                     }}
                   >
-                    {TIPO_LABELS[f.tipo] ?? f.tipo}
+                    <span className="text-[10px] font-extrabold uppercase tracking-wide opacity-80">
+                      {format(d, "MMM", { locale: es }).replace(".", "")}
+                    </span>
+                    <span className="font-display tabular text-lg font-semibold mt-0.5">{format(d, "d")}</span>
                   </span>
-                  <span
-                    className="text-xs font-medium truncate"
-                    style={{ color: "var(--foreground-muted)" }}
-                  >
-                    {f.nombre}
-                  </span>
-                </div>
-                <p
-                  className="text-sm font-semibold mt-0.5 truncate"
-                  style={{ color: "var(--foreground)" }}
-                >
-                  {f.nombreMateria}
-                </p>
-              </div>
 
-              <div className="text-right flex-shrink-0">
-                <div
-                  className="text-xs font-bold flex items-center gap-1"
-                  style={{ color: urgente ? "var(--color-alert)" : "var(--foreground-muted)" }}
-                >
-                  {urgente && <AlertCircle size={10} />}
-                  {label}
-                </div>
-                <div
-                  className="text-xs"
-                  style={{ color: "var(--foreground-subtle)" }}
-                >
-                  {format(parseISO(f.fecha), "d MMM", { locale: es })}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm font-bold text-foreground truncate">{f.materiaNombre}</span>
+                    <span className="block text-xs text-foreground-muted truncate">
+                      {f.nombre}
+                      {f.nombre.toLowerCase().includes(infoTipo(f.tipo).label.toLowerCase())
+                        ? ""
+                        : ` · ${infoTipo(f.tipo).label}`}
+                    </span>
+                  </span>
+
+                  <span
+                    className="text-xs font-extrabold flex-shrink-0"
+                    style={{ color: urgente ? "var(--color-alert)" : "var(--foreground-muted)" }}
+                  >
+                    {etiquetaRelativa(f.fecha)}
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {todas.length > 0 && (
+        <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-card-border">
+          <p className="text-xs text-foreground-subtle">
+            {todas.length > fechas.length ? `Y ${todas.length - fechas.length} más adelante.` : ""}
+          </p>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm -mr-2"
+            onClick={llevarAlCalendario}
+            title="Descarga un archivo que abre Apple Calendar, Samsung Calendar, Outlook o el que uses"
+          >
+            <CalendarArrowDown size={14} /> Llevar a mi calendario
+          </button>
+        </div>
+      )}
+    </section>
   );
 }

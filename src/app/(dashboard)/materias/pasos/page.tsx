@@ -1,44 +1,19 @@
 "use client";
 
 // src/app/(dashboard)/materias/pasos/page.tsx
-// Plan de ruta: qué te falta para terminar la carrera, organizado por año,
-// en vez del grafo de nodos (ilegible con muchas materias).
+// Plan de carrera: qué ya está hecho, qué se puede cursar ahora y qué está
+// trabado por correlativas, año por año.
 
 import { useMemo } from "react";
 import Link from "next/link";
-import {
-  ChevronLeft, Layers, Unlock, Lock, CheckCircle2, BookOpen, Circle,
-} from "lucide-react";
-import { useAuthContext } from "@/components/auth/AuthProvider";
+import { Check, CircleDashed, Lock, PlayCircle, RefreshCw, Route, Unlock } from "lucide-react";
 import { useMaterias } from "@/hooks/useMaterias";
 import { useCarreraActivaContext } from "@/components/dashboard/CarreraActivaProvider";
+import { MateriaFila } from "@/components/materias/MateriaFila";
+import { EmptyState, Esqueleto, PageHeader } from "@/components/ui/kit";
 import { buildGrafo, getMateriasHabilitadas } from "@/lib/grafo-correlativas";
 import { calcularPorcentajeAvance } from "@/lib/calculo-notas";
-import { EstadoMateria, Materia } from "@/types";
-
-const ESTADO_ICONO: Record<EstadoMateria, typeof CheckCircle2> = {
-  aprobada: CheckCircle2,
-  cursando: BookOpen,
-  regular: Circle,
-  libre: Circle,
-  pendiente: Circle,
-};
-
-const ESTADO_COLOR: Record<EstadoMateria, string> = {
-  aprobada: "var(--estado-aprobada)",
-  cursando: "var(--estado-cursando)",
-  regular: "var(--estado-regular)",
-  libre: "var(--estado-libre)",
-  pendiente: "var(--foreground-subtle)",
-};
-
-const ESTADO_LABEL: Record<EstadoMateria, string> = {
-  aprobada: "Aprobada",
-  cursando: "Cursando",
-  regular: "Regular",
-  libre: "Libre",
-  pendiente: "Pendiente",
-};
+import { Materia } from "@/types";
 
 function agruparPorAnio(materias: Materia[]) {
   const grupos = new Map<number | "sin-anio", Materia[]>();
@@ -48,137 +23,139 @@ function agruparPorAnio(materias: Materia[]) {
     grupos.get(clave)!.push(m);
   });
 
-  const claves = Array.from(grupos.keys()).sort((a, b) => {
-    if (a === "sin-anio") return 1;
-    if (b === "sin-anio") return -1;
-    return a - b;
-  });
-
-  return claves.map((clave) => ({
-    clave,
-    materias: grupos.get(clave)!.sort((a, b) => {
-      const cuat = (a.cuatrimestre_plan ?? 9) - (b.cuatrimestre_plan ?? 9);
-      return cuat !== 0 ? cuat : a.nombre.localeCompare(b.nombre);
-    }),
-  }));
+  return Array.from(grupos.keys())
+    .sort((a, b) => (a === "sin-anio" ? 1 : b === "sin-anio" ? -1 : a - b))
+    .map((clave) => ({
+      clave,
+      materias: grupos.get(clave)!.sort((a, b) => {
+        // Anual (0) primero, después 1° y 2° cuatrimestre; sin dato al final.
+        const cuat = (a.cuatrimestre_plan ?? 9) - (b.cuatrimestre_plan ?? 9);
+        return cuat !== 0 ? cuat : a.nombre.localeCompare(b.nombre, "es");
+      }),
+    }));
 }
 
 export default function PasosPage() {
-  const { user } = useAuthContext();
-  const { materias, loading } = useMaterias(user?.uid ?? null);
-  const { carreraActivaId, carreraActiva } = useCarreraActivaContext();
+  const { loading } = useMaterias();
+  const { carreraActiva, materiasVisibles } = useCarreraActivaContext();
 
-  const materiasFiltradas = carreraActivaId
-    ? materias.filter((m) => m.carreras_vinculadas?.includes(carreraActivaId))
-    : materias;
+  const { habilitadas, grafoPorId, grupos } = useMemo(() => {
+    const grafo = buildGrafo(materiasVisibles);
+    const ids = new Set(getMateriasHabilitadas(grafo).map((n) => n.id));
+    return {
+      habilitadas: materiasVisibles.filter((m) => ids.has(m.id)),
+      grafoPorId: new Map(grafo.map((n) => [n.id, n])),
+      grupos: agruparPorAnio(materiasVisibles),
+    };
+  }, [materiasVisibles]);
 
-  const grafo = useMemo(() => buildGrafo(materiasFiltradas), [materiasFiltradas]);
-  const habilitadas = useMemo(() => getMateriasHabilitadas(grafo), [grafo]);
-  const habilitadasIds = new Set(habilitadas.map((n) => n.id));
-  const grafoPorId = new Map(grafo.map((n) => [n.id, n]));
-  const materiasPorId = new Map(materiasFiltradas.map((m) => [m.id, m]));
+  const nombrePorId = new Map(materiasVisibles.map((m) => [m.id, m.nombre]));
+  const habilitadasIds = new Set(habilitadas.map((m) => m.id));
+  const porcentaje = Math.min(100, calcularPorcentajeAvance(materiasVisibles, carreraActiva?.total_materias_plan));
+  const sinCorrelativas = materiasVisibles.every((m) => !m.correlativas_requisito?.length);
 
-  const porcentaje = calcularPorcentajeAvance(materiasFiltradas, carreraActiva?.total_materias_plan);
-  const grupos = useMemo(() => agruparPorAnio(materiasFiltradas), [materiasFiltradas]);
+  function iconoDe(m: Materia, bloqueada: boolean) {
+    if (m.estado === "aprobada") return <Check size={17} strokeWidth={3} className="text-primary flex-shrink-0" />;
+    if (m.estado === "regular") return <Check size={17} className="text-secondary flex-shrink-0" />;
+    if (m.estado === "cursando") return <PlayCircle size={17} className="text-accent flex-shrink-0" />;
+    if (bloqueada) return <Lock size={16} className="text-foreground-subtle flex-shrink-0" />;
+    if (habilitadasIds.has(m.id)) return <Unlock size={16} className="text-primary flex-shrink-0" />;
+    return <CircleDashed size={17} className="text-foreground-subtle flex-shrink-0" />;
+  }
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--background)" }}>
-      <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
+    <main className="page page-narrow">
+      <PageHeader
+        titulo="Plan de carrera"
+        subtitulo={
+          materiasVisibles.length > 0
+            ? `${carreraActiva ? carreraActiva.nombre : "Todas tus materias"} · ${porcentaje}% recorrido`
+            : undefined
+        }
+      />
 
-        <div>
-          <Link href="/materias" className="text-sm mb-1 flex items-center gap-1 hover:underline"
-            style={{ color: "var(--foreground-muted)" }}>
-            <ChevronLeft size={14} /> Materias
+      {loading ? (
+        <Esqueleto filas={3} alto="h-28" />
+      ) : materiasVisibles.length === 0 ? (
+        <EmptyState
+          icono={<Route size={22} />}
+          titulo="Todavía no hay un plan para mostrar"
+          texto="Cuando tengas tus materias cargadas, acá vas a ver año por año qué te falta y qué podés cursar."
+        >
+          <Link href="/materias/importar" className="btn btn-primary">
+            <RefreshCw size={15} /> Traer de SIU Guaraní
           </Link>
-          <h1 className="text-2xl font-extrabold flex items-center gap-2" style={{ color: "var(--foreground)" }}>
-            <Layers size={22} style={{ color: "var(--color-primary)" }} />
-            Plan de ruta
-          </h1>
-          <p className="text-sm mt-1" style={{ color: "var(--foreground-muted)" }}>
-            {carreraActiva ? carreraActiva.nombre : "Vista global"} — {porcentaje}% del camino recorrido
-          </p>
-        </div>
+          <Link href="/materias/nueva" className="btn btn-secondary">Cargar a mano</Link>
+        </EmptyState>
+      ) : (
+        <div className="space-y-5">
+          <div className="progress" role="progressbar" aria-valuenow={porcentaje} aria-valuemin={0} aria-valuemax={100} aria-label="Avance de la carrera">
+            <span style={{ width: `${porcentaje}%` }} />
+          </div>
 
-        {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => <div key={i} className="skeleton h-24 rounded-2xl" />)}
-          </div>
-        ) : materiasFiltradas.length === 0 ? (
-          <div className="rounded-2xl p-8 border text-center" style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
-            <Layers size={32} className="mx-auto mb-3" style={{ color: "var(--foreground-subtle)" }} />
-            <p className="text-sm font-semibold" style={{ color: "var(--foreground-muted)" }}>
-              No hay materias cargadas para armar el plan de ruta
-            </p>
-          </div>
-        ) : (
-          <>
-            {habilitadas.length > 0 && (
-              <div className="rounded-2xl p-4 border" style={{ background: "var(--estado-aprobada-bg)", borderColor: "var(--estado-aprobada)" }}>
-                <h2 className="text-sm font-bold flex items-center gap-2 mb-3" style={{ color: "var(--estado-aprobada)" }}>
-                  <Unlock size={14} />
-                  Podés cursar ahora ({habilitadas.length})
+          {habilitadas.length > 0 && (
+            <section
+              className="rounded-[var(--radius-lg)] border overflow-hidden"
+              style={{ background: "var(--color-primary-soft)", borderColor: "var(--color-primary-light)" }}
+            >
+              <div className="px-4 pt-4 pb-2">
+                <h2 className="section-title flex items-center gap-2">
+                  <Unlock size={16} className="text-primary" />
+                  Podés cursar ahora
+                  <span className="badge !bg-card">{habilitadas.length}</span>
                 </h2>
-                <div className="flex flex-wrap gap-2">
-                  {habilitadas.map((n) => (
-                    <Link key={n.id} href={`/materias/${n.id}`}
-                      className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all hover:opacity-80"
-                      style={{ background: "var(--color-card)", color: "var(--estado-aprobada)" }}>
-                      {n.nombre}
-                    </Link>
-                  ))}
-                </div>
+                <p className="text-sm text-foreground-muted mt-0.5">
+                  {sinCorrelativas
+                    ? "No tenés correlativas cargadas, así que figuran todas las pendientes."
+                    : "Ya tenés aprobadas o regulares todas sus correlativas."}
+                </p>
               </div>
-            )}
+              <div className="divide-y divide-card-border bg-card border-t border-card-border">
+                {habilitadas.map((m) => <MateriaFila key={m.id} materia={m} sinEstado />)}
+              </div>
+            </section>
+          )}
 
-            <div className="space-y-4">
-              {grupos.map(({ clave, materias: materiasDelAnio }) => (
-                <div key={clave} className="rounded-2xl border overflow-hidden" style={{ background: "var(--color-card)", borderColor: "var(--color-card-border)" }}>
-                  <div className="px-4 py-2.5 text-xs font-bold uppercase tracking-wider"
-                    style={{ background: "var(--background-alt)", color: "var(--foreground-muted)" }}>
-                    {clave === "sin-anio" ? "Sin año asignado" : `Año ${clave}`}
-                  </div>
-                  <div className="divide-y" style={{ borderColor: "var(--color-card-border)" }}>
-                    {materiasDelAnio.map((m) => {
-                      const Icono = ESTADO_ICONO[m.estado];
-                      const nodo = grafoPorId.get(m.id);
-                      const bloqueada = m.estado === "pendiente" && !habilitadasIds.has(m.id) && (nodo?.bloqueada_por.length ?? 0) > 0;
-                      const nombresFaltantes = bloqueada
-                        ? nodo!.bloqueada_por.map((id) => materiasPorId.get(id)?.nombre ?? id)
-                        : [];
-
-                      return (
-                        <Link key={m.id} href={`/materias/${m.id}`}
-                          className="flex items-start gap-3 p-3.5 transition-all hover:opacity-80"
-                          style={{ opacity: m.estado === "aprobada" ? 0.75 : 1 }}>
-                          {bloqueada
-                            ? <Lock size={16} className="mt-0.5 flex-shrink-0" style={{ color: "var(--foreground-subtle)" }} />
-                            : <Icono size={16} className="mt-0.5 flex-shrink-0" style={{ color: ESTADO_COLOR[m.estado] }} />}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
-                                {m.nombre}
-                              </p>
-                              <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                                style={{ background: "var(--background-alt)", color: ESTADO_COLOR[m.estado] }}>
-                                {ESTADO_LABEL[m.estado]}
-                              </span>
-                            </div>
-                            {bloqueada && nombresFaltantes.length > 0 && (
-                              <p className="text-xs mt-1" style={{ color: "var(--foreground-subtle)" }}>
-                                Te falta: {nombresFaltantes.join(", ")}
-                              </p>
-                            )}
-                          </div>
-                        </Link>
-                      );
-                    })}
-                  </div>
+          {grupos.map(({ clave, materias }) => {
+            const hechas = materias.filter((m) => m.estado === "aprobada").length;
+            return (
+              <section key={clave} className="card overflow-hidden">
+                <div className="flex items-center justify-between gap-3 px-4 py-3 bg-background-alt">
+                  <h2 className="section-title">
+                    {clave === "sin-anio" ? "Sin año asignado" : `${clave}° año`}
+                  </h2>
+                  <span className="text-xs font-bold text-foreground-muted tabular">
+                    {hechas === materias.length ? "Completo" : `${hechas} de ${materias.length} aprobadas`}
+                  </span>
                 </div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+                <div className="divide-y divide-card-border">
+                  {materias.map((m) => {
+                    const faltantes = (grafoPorId.get(m.id)?.bloqueada_por ?? [])
+                      .map((id) => nombrePorId.get(id))
+                      .filter(Boolean);
+                    const bloqueada = (m.estado === "pendiente" || m.estado === "libre") && faltantes.length > 0;
+                    return (
+                      <MateriaFila
+                        key={m.id}
+                        materia={m}
+                        icono={iconoDe(m, bloqueada)}
+                        atenuada={m.estado === "aprobada"}
+                        detalle={bloqueada ? `Te falta: ${faltantes.join(", ")}` : undefined}
+                      />
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+
+          {grupos.some((g) => g.clave === "sin-anio") && (
+            <p className="text-xs text-foreground-subtle text-center">
+              Para ordenar una materia por año, entrá a la materia → Editar → Más detalles.
+            </p>
+          )}
+        </div>
+      )}
+    </main>
   );
 }

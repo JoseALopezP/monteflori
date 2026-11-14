@@ -10,16 +10,16 @@ import {
   setDoc,
   addDoc,
   updateDoc,
-  deleteDoc,
   query,
-  where,
   orderBy,
   onSnapshot,
+  writeBatch,
   Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { Materia, Carrera, Usuario, Evaluacion, FechaImportante } from "@/types";
+import { ActoAcademico, Materia, Carrera, Usuario, Evaluacion, FechaImportante } from "@/types";
 import type { MateriaScrapeada } from "./extensionSync";
+import { COLORES_CARRERA } from "./estados";
 
 // ── Rutas de colecciones ──────────────────────────────────
 
@@ -63,14 +63,11 @@ export async function crearPerfilUsuario(
 }
 
 
-export async function getPerfilUsuario(uid: string): Promise<Usuario | null> {
-  const snap = await getDoc(paths.usuario(uid));
-  if (!snap.exists()) return null;
-  const data = snap.data() as Partial<Usuario>;
-  // updatePerfil/updateConfiguracion usan setDoc+merge para poder crear el
-  // documento si no existía (ver comentario ahí) — eso puede dejar un doc
-  // con solo "perfil" o solo "configuracion". Normalizamos acá para que el
-  // resto de la app pueda asumir siempre que ambos existen.
+// updatePerfil/updateConfiguracion usan setDoc+merge para poder crear el
+// documento si no existía (ver comentario ahí) — eso puede dejar un doc
+// con solo "perfil" o solo "configuracion". Normalizamos acá para que el
+// resto de la app pueda asumir siempre que ambos existen.
+function normalizarUsuario(uid: string, data: Partial<Usuario>): Usuario {
   return {
     uid,
     ...data,
@@ -82,6 +79,25 @@ export async function getPerfilUsuario(uid: string): Promise<Usuario | null> {
       ...data.configuracion,
     },
   } as Usuario;
+}
+
+export async function getPerfilUsuario(uid: string): Promise<Usuario | null> {
+  const snap = await getDoc(paths.usuario(uid));
+  if (!snap.exists()) return null;
+  return normalizarUsuario(uid, snap.data() as Partial<Usuario>);
+}
+
+/** Perfil en tiempo real: refleja al instante lo que escribe el servidor (Calendar, donación). */
+export function suscribirPerfil(
+  uid: string,
+  callback: (perfil: Usuario | null) => void,
+  onError?: () => void
+): Unsubscribe {
+  return onSnapshot(
+    paths.usuario(uid),
+    (snap) => callback(snap.exists() ? normalizarUsuario(uid, snap.data() as Partial<Usuario>) : null),
+    () => onError?.()
+  );
 }
 
 export async function updateConfiguracion(
@@ -119,8 +135,42 @@ export async function updateCarrera(uid: string, cid: string, datos: Partial<Car
   await updateDoc(paths.carrera(uid, cid), datos);
 }
 
-export async function deleteCarrera(uid: string, cid: string): Promise<void> {
-  await deleteDoc(paths.carrera(uid, cid));
+/**
+ * Borra una carrera y la desvincula de todas las materias que la tenían. Las
+ * materias no se borran. Sin la desvinculación quedaban apuntando a una carrera
+ * inexistente.
+ */
+export async function deleteCarrera(uid: string, cid: string, materias: Materia[] = []): Promise<void> {
+  const batch = writeBatch(db);
+  materias
+    .filter((m) => m.carreras_vinculadas?.includes(cid))
+    .forEach((m) =>
+      batch.update(paths.materia(uid, m.id), {
+        carreras_vinculadas: (m.carreras_vinculadas ?? []).filter((c) => c !== cid),
+      })
+    );
+  batch.delete(paths.carrera(uid, cid));
+  await batch.commit();
+}
+
+export function suscribirCarreras(
+  uid: string,
+  callback: (carreras: Carrera[]) => void,
+  onError?: () => void
+): Unsubscribe {
+  return onSnapshot(
+    paths.carreras(uid),
+    (snap) => {
+      const carreras = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Carrera));
+      carreras.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+      // Las carreras creadas por la importación no traen color: se les da uno
+      // distinto a cada una para poder diferenciarlas (solo para mostrar).
+      callback(
+        carreras.map((c, i) => ({ ...c, color: c.color ?? COLORES_CARRERA[i % COLORES_CARRERA.length] }))
+      );
+    },
+    () => onError?.()
+  );
 }
 
 // ── Materias ───────────────────────────────────────────────
@@ -149,8 +199,21 @@ export async function updateMateria(
   });
 }
 
-export async function deleteMateria(uid: string, mid: string): Promise<void> {
-  await deleteDoc(paths.materia(uid, mid));
+/**
+ * Borra una materia y la saca de las correlativas de las demás, para que
+ * ninguna quede esperando una materia que ya no existe.
+ */
+export async function deleteMateria(uid: string, mid: string, materias: Materia[] = []): Promise<void> {
+  const batch = writeBatch(db);
+  materias
+    .filter((m) => m.id !== mid && m.correlativas_requisito?.includes(mid))
+    .forEach((m) =>
+      batch.update(paths.materia(uid, m.id), {
+        correlativas_requisito: (m.correlativas_requisito ?? []).filter((c) => c !== mid),
+      })
+    );
+  batch.delete(paths.materia(uid, mid));
+  await batch.commit();
 }
 
 // ── Evaluaciones (dentro de una materia) ──────────────────
@@ -219,6 +282,22 @@ export async function addFechaImportante(
   });
 }
 
+export async function updateFechaImportante(
+  uid: string,
+  mid: string,
+  fechaId: string,
+  cambios: Partial<Omit<FechaImportante, "id">>,
+  fechasActuales?: FechaImportante[]
+): Promise<void> {
+  const actualizadas = (fechasActuales ?? []).map((f) =>
+    f.id === fechaId ? { ...f, ...cambios } : f
+  );
+  await updateDoc(paths.materia(uid, mid), {
+    fechas_importantes: actualizadas,
+    ultima_actualizacion: new Date().toISOString(),
+  });
+}
+
 export async function deleteFechaImportante(
   uid: string,
   mid: string,
@@ -237,15 +316,44 @@ export async function deleteFechaImportante(
 
 export function suscribirMaterias(
   uid: string,
-  callback: (materias: Materia[]) => void
+  callback: (materias: Materia[]) => void,
+  onError?: () => void
 ): Unsubscribe {
-  return onSnapshot(paths.materias(uid), (snap) => {
-    const materias = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Materia));
-    callback(materias);
-  });
+  return onSnapshot(
+    paths.materias(uid),
+    (snap) => {
+      const materias = snap.docs.map((d) => {
+        const data = d.data() as Omit<Materia, "id">;
+        // Documentos viejos o importados pueden venir sin estas listas.
+        return { ...data, id: d.id, evaluaciones: data.evaluaciones ?? [] } as Materia;
+      });
+      // El snapshot no garantiza orden: sin esto las listas saltaban de lugar.
+      materias.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+      callback(materias);
+    },
+    () => onError?.()
+  );
 }
 
 // ── Import masivo desde el scraping de la extensión ────────
+
+/** Tope de actos por materia: sobra para cualquier historia real y acota el documento. */
+const MAX_ACTOS = 60;
+
+/**
+ * Deja los actos listos para guardar: solo los campos conocidos (lo que manda
+ * la extensión no se guarda a ciegas) y nunca undefined.
+ */
+function limpiarActos(actos: ActoAcademico[] | undefined): ActoAcademico[] | undefined {
+  if (!actos || actos.length === 0) return undefined;
+  return actos.slice(0, MAX_ACTOS).map((a) => ({
+    tipo: a.tipo,
+    resultado: a.resultado ?? null,
+    nota: typeof a.nota === "number" ? a.nota : null,
+    fecha: a.fecha ?? null,
+    vencimiento: a.vencimiento ?? null,
+  }));
+}
 
 function normalizarNombre(s: string): string {
   return s
@@ -306,6 +414,8 @@ export async function importarMateriasScrapeadas(
         codigo_interno: ms.codigo_interno ?? existente.codigo_interno,
         carreras_vinculadas: vinculadas,
         evaluaciones,
+        // Si esta sincronización no trajo historia, se conserva la que había.
+        actos_academicos: limpiarActos(ms.actos_academicos) ?? existente.actos_academicos,
       });
       idPorNombre.set(clave, existente.id);
       actualizadas++;
@@ -332,6 +442,7 @@ export async function importarMateriasScrapeadas(
         carreras_vinculadas: carreraId ? [carreraId] : undefined,
         configuracion_nota: { sistema: "lineal", nota_aprobar: 4, nota_promocionar: 7 },
         evaluaciones,
+        actos_academicos: limpiarActos(ms.actos_academicos),
         ultima_actualizacion: new Date().toISOString(),
       });
       idPorNombre.set(clave, nuevoId);
@@ -365,11 +476,4 @@ export async function importarMateriasScrapeadas(
     .filter((x): x is { id: string; nombre: string; codigo: string | null } => x !== null);
 
   return { creadas, actualizadas, importadas };
-}
-
-export function buildPhoneQuery(telefono: string) {
-  return query(
-    collection(db, "usuarios"),
-    where("configuracion.telefono_whatsapp", "==", telefono)
-  );
 }
